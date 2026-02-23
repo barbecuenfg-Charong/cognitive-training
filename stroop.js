@@ -4,6 +4,9 @@ document.addEventListener('DOMContentLoaded', () => {
     const gridContainer = document.getElementById('stroop-grid');
     const timerDisplay = document.getElementById('timer');
     const voiceStatus = document.getElementById('voice-status');
+    const voiceFeedback = document.getElementById('voice-feedback');
+    const volumeBar = document.getElementById('volume-bar');
+    const transcriptDisplay = document.getElementById('transcript-display');
     const modeRadios = document.querySelectorAll('input[name="play-mode"]');
     
     let startTime = 0;
