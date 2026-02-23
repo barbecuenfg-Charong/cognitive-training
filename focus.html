@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>注意力集中训练 (1-100找数字)</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="d3.v7.min.js"></script>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>注意力集中训练</h1>
+            <p>中国科学院心理研究所大脑机能灵敏度测试工具复刻版</p>
+        </header>
+
+        <div class="controls">
+            <div class="settings-panel">
+                <div class="mode-selection">
+                    <label>
+                        <input type="radio" name="game-mode" value="simple" checked> 简单版 (有提示)
+                    </label>
+                    <label>
+                        <input type="radio" name="game-mode" value="advanced"> 高级版 (无提示)
+                    </label>
+                </div>
+                <div class="number-setting">
+                    <label for="total-numbers">数字数量:</label>
+                    <input type="number" id="total-numbers" min="1" max="100" value="100">
+                </div>
+            </div>
+            <div class="info-panel">
+                <div class="info-item">
+                    <span class="label">当前目标:</span>
+                    <span id="target-num" class="value">1</span>
+                </div>
+                <div class="info-item">
+                    <span class="label">用时:</span>
+                    <span id="timer" class="value">00:00</span>
+                </div>
+            </div>
+            <button id="start-btn" class="btn primary">开始测试</button>
+        </div>
+
+        <div id="game-area" class="game-area">
+            <svg id="game-svg" width="100%" height="100%"></svg>
+            <div id="overlay" class="overlay">
+                <div class="message">
+                    <h2>准备好了吗？</h2>
+                    <p>规则：按顺序找出数字 1 - 100</p>
+                    <p>点击“开始测试”</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="rules-section">
+            <h3>测试标准参考</h3>
+            <table>
+                <tr>
+                    <th>等级</th>
+                    <th>用时范围</th>
+                </tr>
+                <tr class="grade-excellent">
+                    <td>优 (Excellent)</td>
+                    <td>15分钟以内</td>
+                </tr>
+                <tr class="grade-good">
+                    <td>较好 (Good)</td>
+                    <td>15 - 20分钟</td>
+                </tr>
+                <tr class="grade-average">
+                    <td>一般 (Average)</td>
+                    <td>20 - 25分钟</td>
+                </tr>
+                <tr class="grade-pass">
+                    <td>及格 (Pass)</td>
+                    <td>25 - 30分钟</td>
+                </tr>
+                <tr class="grade-poor">
+                    <td>差 (Poor)</td>
+                    <td>30 - 35分钟</td>
+                </tr>
+            </table>
+            <p style="font-size: 0.8em; color: #666; margin-top: 5px;">* 注：非100数字模式下，评价标准将基于平方级复杂度模型（N²）进行非线性缩放。</p>
+        </div>
+    </div>
+
+    <!-- Modal for Result -->
+    <div id="result-modal" class="modal hidden">
+        <div class="modal-content">
+            <h2>挑战成功！</h2>
+            <p>你的用时: <span id="final-time"></span></p>
+            <p>评级: <span id="final-grade"></span></p>
+            <button id="restart-btn" class="btn primary">确定</button>
+        </div>
+    </div>
+
+    <div style="position: fixed; top: 10px; left: 10px;">
+        <a href="index.html" class="btn secondary" style="text-decoration: none; padding: 8px 16px;">&larr; 返回主页</a>
+    </div>
+
+    <script src="focus.js"></script>
+</body>
+</html>

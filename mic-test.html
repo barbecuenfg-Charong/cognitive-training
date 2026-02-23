@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>麦克风测试</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <style>
+        .test-area {
+            text-align: center;
+            padding: 40px;
+            background: #f8f9fa;
+            border-radius: 12px;
+            margin: 20px 0;
+        }
+        .mic-icon {
+            font-size: 4rem;
+            color: #bdc3c7;
+            margin-bottom: 20px;
+            transition: all 0.3s;
+        }
+        .mic-icon.active {
+            color: #e74c3c;
+            transform: scale(1.1);
+            text-shadow: 0 0 20px rgba(231, 76, 60, 0.5);
+        }
+        .status-text {
+            font-size: 1.2rem;
+            margin-bottom: 20px;
+            color: #2c3e50;
+            min-height: 1.5em;
+        }
+        .result-box {
+            border: 1px solid #ddd;
+            padding: 15px;
+            border-radius: 8px;
+            background: white;
+            min-height: 100px;
+            text-align: left;
+            margin-top: 20px;
+            font-family: monospace;
+            color: #555;
+            overflow-y: auto;
+            max-height: 200px;
+        }
+        .visualizer {
+            width: 100%;
+            height: 60px;
+            background: #eee;
+            margin-top: 20px;
+            border-radius: 30px;
+            overflow: hidden;
+            position: relative;
+        }
+        .bar {
+            height: 100%;
+            width: 0%;
+            background: linear-gradient(90deg, #2ecc71, #f1c40f, #e74c3c);
+            transition: width 0.1s;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div style="position: absolute; top: 20px; left: 20px;">
+                <a href="index.html" class="btn secondary" style="text-decoration: none;">&larr; 返回</a>
+            </div>
+            <h1>麦克风测试</h1>
+            <p>测试您的麦克风是否正常工作，以及语音识别的准确度</p>
+        </header>
+
+        <div class="test-area">
+            <div id="mic-icon" class="mic-icon"><i class="fas fa-microphone"></i></div>
+            <div id="status-text" class="status-text">点击下方按钮开始测试</div>
+            
+            <button id="toggle-btn" class="btn primary">开始测试</button>
+            
+            <div class="visualizer">
+                <div id="volume-bar" class="bar"></div>
+            </div>
+
+            <div class="result-box">
+                <strong>识别结果：</strong><br>
+                <span id="transcript">...</span>
+            </div>
+        </div>
+
+        <div class="rules-section">
+            <h3>测试说明</h3>
+            <p>1. 点击“开始测试”后，浏览器会请求麦克风权限，请点击“允许”。</p>
+            <p>2. 对着麦克风说话，下方的音量条应该会跳动。</p>
+            <p>3. 尝试说出一些颜色词（如“红色”、“绿色”），看看识别结果是否准确。</p>
+            <p>4. 如果无法识别或报错，请检查系统麦克风设置或尝试更换浏览器（推荐 Chrome）。</p>
+        </div>
+    </div>
+
+    <script src="mic-test.js"></script>
+</body>
+</html>

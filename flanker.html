@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Flanker 专注力训练</title>
+    <link rel="stylesheet" href="style.css">
+    <style>
+        .flanker-display {
+            font-size: 5rem;
+            font-weight: bold;
+            color: #2c3e50;
+            height: 200px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: #f9f9f9;
+            border-radius: 8px;
+            margin: 20px 0;
+            letter-spacing: 10px;
+        }
+        .feedback {
+            height: 30px;
+            text-align: center;
+            font-weight: bold;
+            font-size: 1.2rem;
+        }
+        .feedback.correct { color: #27ae60; }
+        .feedback.wrong { color: #e74c3c; }
+        
+        .arrow-controls {
+            display: flex;
+            justify-content: center;
+            gap: 40px;
+            margin-top: 20px;
+        }
+        
+        .arrow-btn {
+            width: 100px;
+            height: 80px;
+            font-size: 3rem;
+            background-color: #34495e;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: background 0.1s;
+        }
+        .arrow-btn:active {
+            transform: scale(0.95);
+        }
+        .arrow-btn:hover {
+            background-color: #2c3e50;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div style="position: absolute; top: 20px; left: 20px;">
+                <a href="index.html" class="btn secondary" style="text-decoration: none;">&larr; 返回</a>
+            </div>
+            <h1>Flanker 专注力训练</h1>
+            <p>请根据<b>红色</b>箭头的方向进行操作，忽略其他干扰</p>
+        </header>
+
+        <div class="controls">
+            <div class="settings-panel">
+                <div class="number-setting">
+                    <label for="time-setting">时长 (秒):</label>
+                    <input type="number" id="time-setting" min="5" max="300" value="30" step="5">
+                </div>
+            </div>
+            <div class="info-panel">
+                <div class="info-item">
+                    <span class="label">得分:</span>
+                    <span id="score" class="value">0</span>
+                </div>
+                <div class="info-item">
+                    <span class="label">倒计时:</span>
+                    <span id="time-left" class="value">30s</span>
+                </div>
+            </div>
+            <button id="start-btn" class="btn primary">开始挑战</button>
+        </div>
+
+        <div id="game-area" class="game-area" style="background: transparent; border: none; height: auto; min-height: 400px; padding-bottom: 0; display: flex; flex-direction: column; justify-content: center;">
+            <div id="display" class="flanker-display">准备</div>
+            <div id="feedback" class="feedback"></div>
+            
+            <div class="arrow-controls">
+                <button id="left-btn" class="arrow-btn" disabled>&larr;</button>
+                <button id="right-btn" class="arrow-btn" disabled>&rarr;</button>
+            </div>
+            <p style="text-align: center; margin-top: 10px;">(也可使用键盘 ← / → 方向键)</p>
+        </div>
+        
+        <div class="rules-section">
+            <h3>规则说明</h3>
+            <p>屏幕会显示一组箭头，例如：<br>
+            &lt; &lt; <strong style="color:red">&gt;</strong> &lt; &lt;<br>
+            您的任务是只看<b>红色</b>的那个箭头。</p>
+            <p>如果红色箭头指向左，按左键；指向右，按右键。红色箭头的位置是随机的。</p>
+        </div>
+    </div>
+
+    <!-- Modal for Result -->
+    <div id="result-modal" class="modal hidden">
+        <div class="modal-content">
+            <h2>训练结束</h2>
+            <p>最终得分: <span id="final-score"></span></p>
+            <p>平均反应时间: <span id="avg-rt"></span> ms</p>
+            <button id="restart-btn" class="btn primary">确定</button>
+        </div>
+    </div>
+
+    <script src="flanker.js"></script>
+</body>
+</html>

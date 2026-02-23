@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>舒尔特方格 (Schulte Grid)</title>
+    <link rel="stylesheet" href="style.css">
+    <style>
+        .schulte-grid {
+            display: grid;
+            gap: 5px;
+            margin: 20px auto;
+            max-width: 600px;
+            justify-content: center;
+            background: #333;
+            padding: 5px;
+            border-radius: 4px;
+        }
+        .schulte-cell {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            background: #fff;
+            font-size: 2rem;
+            width: 60px;
+            height: 60px;
+            cursor: pointer;
+            user-select: none;
+            transition: background 0.1s;
+        }
+        .schulte-cell:active {
+            background: #eee;
+        }
+        .schulte-cell.correct {
+            background: #ddd;
+            color: #aaa;
+        }
+        .schulte-cell.wrong {
+            background: #ffcccc;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div style="position: absolute; top: 20px; left: 20px;">
+                <a href="index.html" class="btn secondary" style="text-decoration: none;">&larr; 返回</a>
+            </div>
+            <h1>舒尔特方格</h1>
+            <p>按顺序快速点击数字 1 - 25</p>
+        </header>
+
+        <div class="controls">
+            <div class="settings-panel">
+                <div class="mode-selection">
+                    <label>
+                        <input type="radio" name="game-mode" value="simple" checked> 简单版 (有提示)
+                    </label>
+                    <label>
+                        <input type="radio" name="game-mode" value="advanced"> 高级版 (无提示)
+                    </label>
+                </div>
+                <div class="number-setting">
+                    <label for="grid-size">矩阵阶数 (N):</label>
+                    <input type="number" id="grid-size" min="3" max="9" value="5">
+                </div>
+            </div>
+            <div class="info-panel">
+                <div class="info-item">
+                    <span class="label">目标:</span>
+                    <span id="target-num" class="value">1</span>
+                </div>
+                <div class="info-item">
+                    <span class="label">用时:</span>
+                    <span id="timer" class="value">00:00</span>
+                </div>
+            </div>
+            <button id="start-btn" class="btn primary">开始测试</button>
+        </div>
+
+        <div id="game-area" class="game-area" style="background: transparent; border: none; display: flex; align-items: center; justify-content: center; height: auto; min-height: 400px; padding-bottom: 0;">
+            <div id="schulte-grid" class="schulte-grid"></div>
+        </div>
+        
+        <div class="rules-section">
+            <h3>评价标准 (5x5)</h3>
+            <table>
+                <tr>
+                    <th>等级</th>
+                    <th>用时范围</th>
+                </tr>
+                <tr><td>优秀</td><td>20秒以内</td></tr>
+                <tr><td>良好</td><td>20 - 30秒</td></tr>
+                <tr><td>中等</td><td>30 - 45秒</td></tr>
+                <tr><td>一般</td><td>45 - 60秒</td></tr>
+            </table>
+        </div>
+    </div>
+
+    <!-- Modal for Result -->
+    <div id="result-modal" class="modal hidden">
+        <div class="modal-content">
+            <h2>挑战成功！</h2>
+            <p>你的用时: <span id="final-time"></span></p>
+            <button id="restart-btn" class="btn primary">确定</button>
+        </div>
+    </div>
+
+    <script src="schulte.js"></script>
+</body>
+</html>

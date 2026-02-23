@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>斯特鲁普测试 (颜色干扰)</title>
+    <link rel="stylesheet" href="style.css">
+    <style>
+        .stroop-grid {
+            display: grid;
+            gap: 15px;
+            margin: 20px auto;
+            max-width: 600px;
+            justify-content: center;
+        }
+        .stroop-cell {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            background: #fff;
+            border-radius: 8px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+            /* font-size and height set by JS */
+            user-select: none;
+            transition: all 0.2s;
+            border: 3px solid transparent;
+        }
+        .stroop-cell.active {
+            border-color: #3498db;
+            box-shadow: 0 0 15px rgba(52, 152, 219, 0.3);
+            transform: scale(1.05);
+        }
+        .stroop-cell.correct {
+            opacity: 0.3;
+            filter: grayscale(100%);
+            border-color: #2ecc71;
+        }
+        .stroop-cell.wrong {
+            animation: shake 0.4s;
+            border-color: #e74c3c;
+        }
+        @keyframes shake {
+            0%, 100% { transform: translateX(0); }
+            25% { transform: translateX(-5px); }
+            75% { transform: translateX(5px); }
+        }
+        .voice-status {
+            text-align: center;
+            margin-bottom: 10px;
+            height: 24px;
+            font-weight: bold;
+            color: #7f8c8d;
+        }
+        .voice-status.listening {
+            color: #e74c3c;
+        }
+        .voice-status.matched {
+            color: #2ecc71;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div style="position: absolute; top: 20px; left: 20px;">
+                <a href="index.html" class="btn secondary" style="text-decoration: none;">&larr; 返回</a>
+            </div>
+            <h1>斯特鲁普测试</h1>
+            <p>请快速读出每个字的<span style="color:red; font-weight:bold;">颜色</span>（不要读字的内容）</p>
+        </header>
+
+        <div class="controls">
+            <div class="settings-panel">
+                <div class="mode-selection" style="margin-bottom: 10px;">
+                    <label>
+                        <input type="radio" name="play-mode" value="manual" checked> 手动模式 (自测)
+                    </label>
+                    <label>
+                        <input type="radio" name="play-mode" value="voice"> 语音模式 (互动)
+                    </label>
+                </div>
+                <div class="number-setting">
+                    <label for="grid-size">矩阵大小 (N x N):</label>
+                    <input type="number" id="grid-size" min="3" max="7" value="4">
+                </div>
+            </div>
+            <div class="info-panel">
+                <div class="info-item">
+                    <span class="label">用时:</span>
+                    <span id="timer" class="value">00:00</span>
+                </div>
+            </div>
+            <button id="start-btn" class="btn primary">生成并开始</button>
+        </div>
+        
+        <div id="voice-status" class="voice-status"></div>
+
+        <div id="voice-feedback" class="voice-feedback-container">
+            <div class="visualizer">
+                <div id="volume-bar" class="volume-bar"></div>
+            </div>
+            <div id="transcript-display" class="transcript-text">等待语音输入...</div>
+        </div>
+
+        <div id="game-area" class="game-area" style="background: transparent; border: none; display: flex; align-items: center; justify-content: center; height: auto; min-height: 400px; padding-bottom: 0;">
+            <div id="stroop-grid" class="stroop-grid"></div>
+        </div>
+        
+        <div class="rules-section">
+            <h3>训练说明</h3>
+            <p>1. <b>手动模式</b>：这是一个自我挑战模式。开始计时后，请自己读出颜色，读完后点击“停止计时”。</p>
+            <p>2. <b>语音模式</b>：<span style="color:#e74c3c">推荐！</span>使用麦克风互动。</p>
+            <ul style="color:#666; font-size: 0.9em; margin-top: 5px;">
+                <li>系统会<b>高亮</b>当前需要读的字。</li>
+                <li>请大声读出该字的<b>颜色</b>（如“红”、“绿色”）。</li>
+                <li>读对后会自动跳转到下一个字。</li>
+                <li>支持颜色：红、橙、黄、绿、青、蓝、紫。</li>
+            </ul>
+        </div>
+    </div>
+
+    <script src="stroop.js"></script>
+</body>
+</html>

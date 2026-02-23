@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>N-Back 记忆训练</title>
+    <link rel="stylesheet" href="style.css">
+    <style>
+        .nback-display {
+            font-size: 8rem;
+            font-weight: bold;
+            color: #2c3e50;
+            height: 200px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: #f9f9f9;
+            border-radius: 8px;
+            margin: 20px 0;
+            transition: color 0.2s;
+        }
+        .feedback {
+            height: 30px;
+            text-align: center;
+            font-weight: bold;
+            font-size: 1.2rem;
+        }
+        .feedback.correct { color: #27ae60; }
+        .feedback.wrong { color: #e74c3c; }
+        
+        .action-btn {
+            width: 100%;
+            height: 80px;
+            font-size: 1.5rem;
+            margin-top: 20px;
+            background-color: #34495e;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: background 0.1s;
+        }
+        .action-btn:active {
+            transform: scale(0.98);
+        }
+        .action-btn.match {
+            background-color: #2ecc71;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div style="position: absolute; top: 20px; left: 20px;">
+                <a href="index.html" class="btn secondary" style="text-decoration: none;">&larr; 返回</a>
+            </div>
+            <h1>N-Back 记忆训练</h1>
+            <p>比较<b>当前字符</b>与<b>倒数第 N 个字符</b>是否相同</p>
+        </header>
+
+        <div class="controls">
+            <div class="settings-panel">
+                <div class="mode-selection" style="margin-bottom: 10px;">
+                    <label>
+                        <input type="radio" name="char-type" value="letters" checked> 字母 (A, B, C)
+                    </label>
+                    <label>
+                        <input type="radio" name="char-type" value="hanzi"> 汉字 (日, 月, 山)
+                    </label>
+                </div>
+                <div class="number-setting">
+                    <label for="n-level">难度 (N):</label>
+                    <input type="number" id="n-level" min="0" max="5" value="2">
+                </div>
+                <div class="number-setting">
+                    <label for="speed">速度 (秒):</label>
+                    <input type="number" id="speed" min="1" max="5" value="2" step="0.5">
+                </div>
+                <div class="number-setting">
+                    <label for="total-rounds">轮次:</label>
+                    <input type="number" id="total-rounds" min="5" max="100" value="20" step="5">
+                </div>
+            </div>
+            <div class="info-panel">
+                <div class="info-item">
+                    <span class="label">得分:</span>
+                    <span id="score" class="value">0</span>
+                </div>
+                <div class="info-item">
+                    <span class="label">轮次:</span>
+                    <span id="round" class="value">0/20</span>
+                </div>
+            </div>
+            <button id="start-btn" class="btn primary">开始训练</button>
+        </div>
+
+        <div id="game-area" class="game-area" style="background: transparent; border: none; height: auto; min-height: 400px; padding-bottom: 0; display: flex; flex-direction: column; justify-content: center;">
+            <div id="display" class="nback-display">?</div>
+            <div id="feedback" class="feedback"></div>
+            <button id="match-btn" class="action-btn" disabled>匹配 (Match)</button>
+        </div>
+        
+        <div class="rules-section">
+            <h3>规则说明 (以 N=2 为例)</h3>
+            <p>1. 屏幕会逐个显示字符。请时刻记住最近出现的几个字符。</p>
+            <p>2. 当<b>当前显示的字符</b>与<b>倒数第 N 个字符</b>完全相同时，请立即点击“匹配”按钮。</p>
+            <p>3. <b>特别说明 N=0：</b> 如果当前字符<b>在之前任何时候出现过</b>，就算匹配。</p>
+            <p>4. 示例 (N=2)：A &rarr; B &rarr; <strong style="color:#27ae60">A</strong> (匹配! 因为它等于前前一个A)</p>
+        </div>
+    </div>
+
+    <!-- Modal for Result -->
+    <div id="result-modal" class="modal hidden">
+        <div class="modal-content" style="max-width: 600px; width: 90%;">
+            <h2>训练结束</h2>
+            <p>最终得分: <span id="final-score"></span></p>
+            <p>准确率: <span id="final-accuracy"></span></p>
+            
+            <div class="history-container" style="margin-top: 20px; text-align: left; max-height: 300px; overflow-y: auto; border: 1px solid #eee; padding: 10px; border-radius: 8px;">
+                <h3 style="font-size: 1rem; color: #555; margin-bottom: 10px;">详细记录:</h3>
+                <div id="history-list" style="display: flex; flex-wrap: wrap; gap: 8px;">
+                    <!-- History items injected here -->
+                </div>
+            </div>
+            
+            <button id="restart-btn" class="btn primary" style="margin-top: 20px;">确定</button>
+        </div>
+    </div>
+
+    <script src="nback.js"></script>
+</body>
+</html>
