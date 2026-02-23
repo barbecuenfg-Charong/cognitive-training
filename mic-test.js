@@ -94,11 +94,33 @@ document.addEventListener('DOMContentLoaded', () => {
 
         recognition.onerror = (event) => {
             console.error("Speech error", event.error);
-            statusText.textContent = "错误: " + event.error;
+            let msg = "错误: " + event.error;
+            
             if (event.error === 'not-allowed') {
-                alert("麦克风权限被拒绝。请在浏览器设置中允许访问麦克风。");
+                msg = "麦克风权限被拒绝。请在浏览器设置中允许访问。";
+                alert(msg);
                 stopTest();
+            } else if (event.error === 'service-not-allowed') {
+                msg = "当前浏览器不支持语音识别服务，请使用 Chrome 或 Edge 浏览器。";
+                alert(msg);
+                stopTest();
+            } else if (event.error === 'network' && isElectron) {
+                 statusText.innerHTML = "网络错误：桌面版缺少语音API密钥。<br><a href='#' id='open-browser-mic-link'>在系统浏览器中打开</a>";
+                 setTimeout(() => {
+                     const link = document.getElementById('open-browser-mic-link');
+                     if (link) {
+                         link.onclick = (e) => {
+                             e.preventDefault();
+                             const { shell } = require('electron');
+                             shell.openPath(window.location.href);
+                         };
+                     }
+                 }, 100);
+                 stopTest();
+                 return; // Avoid overwriting statusText below
             }
+            
+            statusText.textContent = msg;
         };
 
         recognition.onend = () => {

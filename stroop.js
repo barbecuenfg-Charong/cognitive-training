@@ -277,6 +277,31 @@ document.addEventListener('DOMContentLoaded', () => {
                 voiceStatus.textContent = "麦克风权限被拒绝，请允许后重试";
                 voiceStatus.className = "voice-status";
                 stopGame();
+            } else if (event.error === 'service-not-allowed') {
+                voiceStatus.textContent = "当前浏览器不支持语音服务，请使用 Chrome/Edge";
+                voiceStatus.className = "voice-status";
+                stopGame();
+            } else if (event.error === 'network') {
+                if (isElectron) {
+                    voiceStatus.innerHTML = "⚠️ 网络错误：桌面版缺少语音API密钥。<br>请点击 <a href='#' id='open-browser-error-link'>在浏览器中打开</a> 使用。";
+                    setTimeout(() => {
+                         const link = document.getElementById('open-browser-error-link');
+                         if (link) {
+                             link.onclick = (e) => {
+                                 e.preventDefault();
+                                 try {
+                                     const { shell } = require('electron');
+                                     shell.openPath(window.location.href);
+                                 } catch(err) {}
+                             };
+                         }
+                    }, 100);
+                } else {
+                    voiceStatus.textContent = "网络错误，无法连接语音服务";
+                }
+                voiceStatus.className = "voice-status";
+                voiceStatus.style.height = "auto";
+                stopGame();
             } else {
                 // Ignore small errors, maybe just restart
                 // voiceStatus.textContent = "识别出错: " + event.error;
