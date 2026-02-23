@@ -46,6 +46,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function stopTest() {
         toggleBtn.textContent = "开始测试";
+        toggleBtn.style.display = 'inline-block';
+        stopBtn.style.display = 'none';
         toggleBtn.classList.remove('secondary');
         toggleBtn.classList.add('primary');
         isListening = false;

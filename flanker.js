@@ -128,10 +128,24 @@ document.addEventListener('DOMContentLoaded', () => {
         feedback.className = `feedback ${type}`;
     }
 
-    function endGame() {
+    function endGame(forced = false) {
         isPlaying = false;
         clearInterval(timerInterval);
         
+        startBtn.style.display = 'inline-block';
+        startBtn.disabled = false;
+        stopBtn.style.display = 'none';
+        timeSettingInput.disabled = false;
+        leftBtn.disabled = true;
+        rightBtn.disabled = true;
+        display.innerHTML = "结束";
+        
+        if (forced) {
+            feedback.textContent = "已停止";
+            return;
+        }
+        
+        // Calculate average RT
         const avgRt = reactionTimes.length > 0 
             ? Math.round(reactionTimes.reduce((a, b) => a + b, 0) / reactionTimes.length) 
             : 0;

@@ -137,6 +137,8 @@ document.addEventListener('DOMContentLoaded', () => {
     function stopGame() {
         stopTimer();
         startBtn.textContent = "生成并开始";
+        startBtn.style.display = 'inline-block';
+        stopBtn.style.display = 'none';
         startBtn.classList.remove('secondary');
         startBtn.classList.add('primary');
         isPlaying = false;
