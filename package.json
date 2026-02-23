@@ -12,7 +12,7 @@
     "training",
     "electron"
   ],
-  "author": "Trae User",
+  "author": "Cognitive Training Developer",
   "license": "ISC",
   "devDependencies": {
     "electron": "^28.3.3",

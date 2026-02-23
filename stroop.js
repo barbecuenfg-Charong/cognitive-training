@@ -104,13 +104,23 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     function startGame() {
-        generateGrid();
+        if (!gridData.length) {
+            generateGrid();
+        }
+        
+        // Reset state
+        currentIndex = 0;
+        
+        // Reset visual state of cells
+        gridData.forEach(d => {
+            d.element.classList.remove('active', 'correct', 'wrong');
+        });
+
         startTimer();
         startBtn.textContent = "停止计时";
         startBtn.classList.remove('primary');
         startBtn.classList.add('secondary'); // Visual feedback
         isPlaying = true;
-        currentIndex = 0;
 
         if (isVoiceMode) {
             // Only start recognition when user clicks Start
@@ -167,7 +177,7 @@ document.addEventListener('DOMContentLoaded', () => {
             cell.textContent = charText;
             cell.style.color = colorObj.hex;
             
-            // Adjust font size based on N
+            // Adjust font size based on N and viewport
             const sizeMap = {
                 3: { font: '60px', height: '100px', width: '100px' },
                 4: { font: '50px', height: '90px', width: '90px' },
@@ -176,9 +186,18 @@ document.addEventListener('DOMContentLoaded', () => {
                 7: { font: '24px', height: '50px', width: '50px' }
             };
             const style = sizeMap[n] || sizeMap[4];
-            cell.style.fontSize = style.font;
-            cell.style.height = style.height;
-            cell.style.width = style.width;
+            
+            // Responsive adjustments for mobile
+            if (window.innerWidth <= 768) {
+                const mobileSize = Math.floor((window.innerWidth - 40) / n) - 10;
+                cell.style.fontSize = `${mobileSize * 0.5}px`;
+                cell.style.height = `${mobileSize}px`;
+                cell.style.width = `${mobileSize}px`;
+            } else {
+                cell.style.fontSize = style.font;
+                cell.style.height = style.height;
+                cell.style.width = style.width;
+            }
             
             gridContainer.appendChild(cell);
             

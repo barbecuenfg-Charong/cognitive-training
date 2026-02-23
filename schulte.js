@@ -90,11 +90,16 @@ document.addEventListener('DOMContentLoaded', () => {
             cell.className = 'schulte-cell';
             cell.textContent = num;
             
-            // Adjust size based on N
-            const size = Math.max(40, Math.min(80, 600 / n - 10));
+            // Adjust size based on N and viewport
+            const maxWidth = Math.min(600, window.innerWidth - 40);
+            const size = Math.max(30, Math.floor((maxWidth - (n - 1) * 5) / n));
+            
             cell.style.width = `${size}px`;
             cell.style.height = `${size}px`;
             cell.style.fontSize = `${size * 0.5}px`;
+            
+            cell.textContent = num;
+            cell.className = 'schulte-cell';
             
             cell.addEventListener('click', () => handleCellClick(cell, num));
             gridContainer.appendChild(cell);
