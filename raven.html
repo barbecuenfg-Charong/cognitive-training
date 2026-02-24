@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>瑞文推理 (Raven's Matrices)</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <style>
+        .raven-container {
+            max-width: 800px;
+            margin: 0 auto;
+            text-align: center;
+        }
+
+        .matrix-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 10px;
+            width: 100%;
+            max-width: 450px;
+            margin: 0 auto 30px;
+            background: #f8f9fa;
+            padding: 10px;
+            border-radius: 12px;
+            box-shadow: inset 0 2px 5px rgba(0,0,0,0.05);
+        }
+
+        .matrix-cell {
+            aspect-ratio: 1;
+            background: white;
+            border-radius: 8px;
+            border: 2px solid #e0e0e0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            overflow: hidden;
+            position: relative;
+        }
+
+        .matrix-cell.empty {
+            border: 2px dashed #bdc3c7;
+            background: #f0f3f5;
+            color: #bdc3c7;
+            font-size: 2rem;
+            cursor: default;
+        }
+
+        .options-area {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr); /* 2 rows of 4 options? or 1 row? standard is often 6 or 8 options */
+            gap: 15px;
+            max-width: 600px;
+            margin: 0 auto;
+        }
+        
+        @media (max-width: 600px) {
+            .options-area {
+                grid-template-columns: repeat(3, 1fr);
+            }
+        }
+
+        .option-card {
+            aspect-ratio: 1;
+            background: white;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .option-card:hover {
+            border-color: #3498db;
+            transform: translateY(-3px);
+            box-shadow: 0 5px 15px rgba(52, 152, 219, 0.2);
+        }
+        
+        .option-card.selected {
+            border-color: #3498db;
+            background-color: #ebf5fb;
+        }
+
+        /* Progress Bar */
+        .progress-container {
+            width: 100%;
+            height: 8px;
+            background: #eee;
+            border-radius: 4px;
+            margin-bottom: 20px;
+            overflow: hidden;
+        }
+
+        .progress-bar {
+            height: 100%;
+            background: #2c3e50;
+            width: 0%;
+            transition: width 0.3s ease;
+        }
+        
+        svg {
+            width: 80%;
+            height: 80%;
+        }
+    </style>
+</head>
+<body>
+    <div style="position: fixed; top: 10px; left: 10px; z-index: 100;">
+        <a href="index.html" class="btn secondary" style="text-decoration: none; padding: 8px 16px;">&larr; 返回主页</a>
+    </div>
+
+    <div class="container raven-container">
+        <header>
+            <h1>瑞文推理 (Raven's Matrices)</h1>
+            <p>观察图形规律，选择缺失的板块。考察您的抽象推理与流体智力。</p>
+        </header>
+
+        <div class="progress-container">
+            <div class="progress-bar" id="progress-bar"></div>
+        </div>
+
+        <div class="info-panel" style="justify-content: space-between; margin-bottom: 20px;">
+            <div class="info-item">
+                <span class="label">题目</span>
+                <span id="level-display" class="value">1 / 10</span>
+            </div>
+            <div class="info-item">
+                <span class="label">得分</span>
+                <span id="score-display" class="value">0</span>
+            </div>
+        </div>
+
+        <div class="game-area" style="border: none; background: transparent; height: auto; padding-bottom: 0;">
+            <!-- 3x3 Matrix Grid -->
+            <div class="matrix-grid" id="matrix-grid">
+                <!-- Cells will be injected by JS -->
+                <div class="matrix-cell"></div>
+                <div class="matrix-cell"></div>
+                <div class="matrix-cell"></div>
+                <div class="matrix-cell"></div>
+                <div class="matrix-cell"></div>
+                <div class="matrix-cell"></div>
+                <div class="matrix-cell"></div>
+                <div class="matrix-cell"></div>
+                <div class="matrix-cell empty">?</div>
+            </div>
+
+            <div style="margin-bottom: 15px; color: #7f8c8d; font-size: 0.9rem;">请从下方选项中选择最合适的一项填入问号处：</div>
+
+            <!-- Options Grid -->
+            <div class="options-area" id="options-area">
+                <!-- Options will be injected by JS -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal for Result -->
+    <div id="result-modal" class="modal hidden">
+        <div class="modal-content">
+            <h2>测试完成</h2>
+            <div class="result-stats">
+                <div class="stat-item">
+                    <span class="stat-label">正确率</span>
+                    <span id="final-accuracy" class="stat-value">0%</span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-label">总得分</span>
+                    <span id="final-score" class="stat-value">0</span>
+                </div>
+            </div>
+            <p id="performance-feedback" style="margin-top: 15px; color: #3498db; font-weight: bold;"></p>
+            <button id="restart-btn" class="btn primary" onclick="location.reload()">重新开始</button>
+            <a href="index.html" class="btn secondary" style="margin-top: 10px; display: inline-block; text-decoration: none;">返回主页</a>
+        </div>
+    </div>
+
+    <script src="raven.js"></script>
+</body>
+</html>

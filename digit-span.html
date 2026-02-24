@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>数字广度 (Digit Span)</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <style>
+        .game-container {
+            max-width: 600px;
+            margin: 0 auto;
+            text-align: center;
+            padding: 20px;
+        }
+
+        .digit-display-area {
+            height: 200px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            margin-bottom: 20px;
+            background: #f8f9fa;
+            border-radius: 12px;
+            box-shadow: inset 0 2px 5px rgba(0,0,0,0.05);
+            position: relative;
+        }
+
+        .digit-content {
+            font-size: 120px;
+            font-weight: bold;
+            color: #2c3e50;
+            transition: transform 0.2s;
+        }
+
+        .input-area {
+            display: none; /* Initially hidden */
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .input-display {
+            font-size: 36px;
+            letter-spacing: 15px;
+            height: 60px;
+            margin-bottom: 20px;
+            color: #34495e;
+            border-bottom: 2px solid #bdc3c7;
+            min-width: 200px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .keypad {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 15px;
+            width: 100%;
+            max-width: 320px;
+        }
+
+        .key-btn {
+            padding: 20px 0;
+            font-size: 24px;
+            font-weight: bold;
+            background: #ffffff;
+            border: 2px solid #e0e0e0;
+            border-radius: 12px;
+            cursor: pointer;
+            transition: all 0.1s;
+            color: #2c3e50;
+            box-shadow: 0 4px 0 #e0e0e0;
+            user-select: none;
+        }
+
+        .key-btn:active {
+            transform: translateY(4px);
+            box-shadow: none;
+        }
+
+        .key-zero {
+            grid-column: 2;
+        }
+
+        .key-delete {
+            background: #ffebee;
+            color: #e74c3c;
+            border-color: #ffcdd2;
+            box-shadow: 0 4px 0 #ffcdd2;
+        }
+
+        .key-submit {
+            background: #e8f5e9;
+            color: #2ecc71;
+            border-color: #c8e6c9;
+            box-shadow: 0 4px 0 #c8e6c9;
+        }
+
+        /* Status indicators */
+        .status-indicator {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            font-size: 14px;
+            color: #95a5a6;
+        }
+
+        /* Message overlay inside digit area (scoped to Digit Span) */
+        .ds-instruction {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 24px;
+            color: #7f8c8d;
+            background: rgba(255,255,255,0.9);
+            padding: 10px 20px;
+            border-radius: 8px;
+            display: none;
+        }
+
+        @media (max-width: 480px) {
+            .digit-content { font-size: 80px; }
+            .key-btn { padding: 15px 0; font-size: 20px; }
+            .digit-display-area { height: 150px; }
+        }
+    </style>
+</head>
+<body>
+    <div style="position: fixed; top: 10px; left: 10px; z-index: 100;">
+        <a href="index.html" class="btn secondary" style="text-decoration: none; padding: 8px 16px;">&larr; 返回主页</a>
+    </div>
+
+    <div class="container game-container">
+        <header>
+            <h1>数字广度 (Digit Span)</h1>
+            <p>测试您的短时记忆容量。请记住屏幕上出现的数字序列。</p>
+        </header>
+
+        <div class="controls">
+            <div class="settings-panel">
+                <div class="mode-selection">
+                    <label class="radio-label">
+                        <input type="radio" name="mode" value="forward" checked> 
+                        <span class="radio-custom"></span> 正向回忆 (顺背)
+                    </label>
+                    <label class="radio-label">
+                        <input type="radio" name="mode" value="backward"> 
+                        <span class="radio-custom"></span> 逆向回忆 (倒背)
+                    </label>
+                </div>
+                <div class="setting-item">
+                    <label for="speed-select">速度:</label>
+                    <select id="speed-select">
+                        <option value="1500">慢速 (1.5s)</option>
+                        <option value="1000" selected>标准 (1.0s)</option>
+                        <option value="700">快速 (0.7s)</option>
+                    </select>
+                </div>
+            </div>
+            
+            <div class="info-panel">
+                <div class="info-item">
+                    <span class="label">当前长度</span>
+                    <span id="current-length" class="value">3</span>
+                </div>
+                <div class="info-item">
+                    <span class="label">得分</span>
+                    <span id="score" class="value">0</span>
+                </div>
+            </div>
+
+            <button id="start-btn" class="btn primary">开始挑战</button>
+            <button id="stop-btn" class="btn danger" style="display:none;">停止</button>
+        </div>
+
+        <div class="digit-display-area" id="display-area">
+            <div id="digit-content" class="digit-content"></div>
+            <div id="instruction-text" class="ds-instruction"></div>
+            <div class="status-indicator" id="round-indicator"></div>
+        </div>
+
+        <div class="input-area" id="input-area">
+            <div class="input-display" id="user-input-display"></div>
+            <div class="keypad">
+                <button class="key-btn" onclick="inputDigit(1)">1</button>
+                <button class="key-btn" onclick="inputDigit(2)">2</button>
+                <button class="key-btn" onclick="inputDigit(3)">3</button>
+                <button class="key-btn" onclick="inputDigit(4)">4</button>
+                <button class="key-btn" onclick="inputDigit(5)">5</button>
+                <button class="key-btn" onclick="inputDigit(6)">6</button>
+                <button class="key-btn" onclick="inputDigit(7)">7</button>
+                <button class="key-btn" onclick="inputDigit(8)">8</button>
+                <button class="key-btn" onclick="inputDigit(9)">9</button>
+                <button class="key-btn key-delete" onclick="deleteDigit()"><i class="fas fa-backspace"></i></button>
+                <button class="key-btn key-zero" onclick="inputDigit(0)">0</button>
+                <button class="key-btn key-submit" onclick="submitSequence()"><i class="fas fa-check"></i></button>
+            </div>
+        </div>
+
+        <div class="rules-section">
+            <h3>规则说明</h3>
+            <ul style="text-align: left; margin-left: 20px; color: #7f8c8d;">
+                <li><strong>正向回忆</strong>: 数字 "5, 9, 1" -> 输入 "5, 9, 1"</li>
+                <li><strong>逆向回忆</strong>: 数字 "5, 9, 1" -> 输入 "1, 9, 5"</li>
+                <li>每一级长度有 <strong>2次机会</strong>。</li>
+                <li>只要有一次成功，长度增加一位。</li>
+                <li>两次都失败，挑战结束。</li>
+            </ul>
+        </div>
+    </div>
+
+    <!-- Modal for Result -->
+    <div id="result-modal" class="modal hidden">
+        <div class="modal-content">
+            <h2>挑战结束</h2>
+            <div class="result-stats">
+                <div class="stat-item">
+                    <span class="stat-label">最大广度</span>
+                    <span id="final-span" class="stat-value">0</span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-label">总得分</span>
+                    <span id="final-score" class="stat-value">0</span>
+                </div>
+            </div>
+            <p id="performance-rating" style="margin-top: 15px; color: #3498db; font-weight: bold;"></p>
+            <button id="restart-btn" class="btn primary">再试一次</button>
+        </div>
+    </div>
+
+    <script src="digit-span.js"></script>
+</body>
+</html>

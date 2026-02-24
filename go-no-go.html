@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Go/No-Go 抑制控制 - 认知能力训练</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+</head>
+<body>
+    <div class="game-container">
+        <header class="game-header">
+            <a href="index.html" class="back-btn"><i class="fas fa-arrow-left"></i> 返回</a>
+            <h1>Go/No-Go 抑制控制</h1>
+            <div class="score-board">
+                <div class="score-item">
+                    <span class="label">正确率</span>
+                    <span class="value" id="accuracy">100%</span>
+                </div>
+                <div class="score-item">
+                    <span class="label">反应时</span>
+                    <span class="value" id="avg-rt">-- ms</span>
+                </div>
+            </div>
+        </header>
+
+        <div class="game-area" id="game-area">
+            <!-- Instruction Overlay -->
+            <div class="instruction-overlay" id="instruction-overlay">
+                <div class="instruction-content">
+                    <h2><i class="fas fa-traffic-light"></i> 抑制控制训练</h2>
+                    <p>本任务测试您的冲动抑制能力。请尽可能快地做出反应，但在特定信号出现时抑制动作。</p>
+                    
+                    <div class="rule-box">
+                        <h3>规则说明</h3>
+                        <ul>
+                            <li>看到 <strong style="color: #2ecc71;">绿色圆圈</strong> (Go信号) → <strong>立即按空格键</strong></li>
+                            <li>看到 <strong style="color: #e74c3c;">红色圆圈</strong> (No-Go信号) → <strong>不要按键</strong></li>
+                            <li>Go信号出现频率较高 (80%)，请保持专注。</li>
+                        </ul>
+                    </div>
+
+                    <div class="key-hints">
+                        <div class="key">Space</div>
+                        <span>空格键</span>
+                    </div>
+
+                    <button class="start-btn" onclick="startGame()">开始测试</button>
+                </div>
+            </div>
+
+            <!-- Game Display -->
+            <div class="gng-display" id="gng-display" style="display: none;">
+                <div class="stimulus-circle" id="stimulus-circle"></div>
+            </div>
+
+            <!-- Result Overlay -->
+            <div class="result-modal" id="result-modal" style="display: none;">
+                <div class="modal-content">
+                    <div class="result-icon"><i class="fas fa-check-circle"></i></div>
+                    <h2>测试完成</h2>
+                    <div class="stats-grid">
+                        <div class="stat-item">
+                            <span class="stat-label">Go 正确率</span>
+                            <span class="stat-value" id="go-accuracy">0%</span>
+                            <span class="stat-desc">对Go信号的反应比例</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-label">No-Go 正确率</span>
+                            <span class="stat-value" id="nogo-accuracy">0%</span>
+                            <span class="stat-desc">成功抑制冲动的比例</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-label">平均反应时</span>
+                            <span class="stat-value" id="final-rt">0 ms</span>
+                        </div>
+                    </div>
+                    <div class="action-buttons">
+                        <button class="restart-btn" onclick="location.reload()">再试一次</button>
+                        <a href="index.html" class="home-btn">返回主页</a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <script src="go-no-go.js"></script>
+</body>
+</html>

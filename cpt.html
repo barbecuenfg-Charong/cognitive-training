@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>持续表现任务 (CPT) - 认知能力训练</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+</head>
+<body>
+    <div class="game-container">
+        <header class="game-header">
+            <a href="index.html" class="back-btn"><i class="fas fa-arrow-left"></i> 返回大厅</a>
+            <h1>持续表现任务 (CPT)</h1>
+            <div class="score-board">
+                <span><i class="fas fa-bullseye"></i> 命中: <span id="hits">0</span></span>
+                <span><i class="fas fa-times-circle"></i> 误报: <span id="false-alarms">0</span></span>
+                <span><i class="fas fa-stopwatch"></i> 平均反应: <span id="avg-rt">0</span>ms</span>
+            </div>
+        </header>
+
+        <div class="game-area" id="game-area">
+            <div class="instruction-overlay" id="start-screen">
+                <div class="instruction-content">
+                    <h2><i class="fas fa-eye"></i> 持续表现任务</h2>
+                    <p>这是一个测试专注力持久性的任务。</p>
+                    <div class="rule-box">
+                        <h3><i class="fas fa-clipboard-list"></i> 规则说明</h3>
+                        <ul>
+                            <li>屏幕上会快速闪现一系列字母。</li>
+                            <li>当且仅当看到字母 <strong>X</strong> 时，请尽快按下 <strong>空格键</strong> 或点击屏幕。</li>
+                            <li>如果出现其他字母，请不要做任何反应。</li>
+                            <li>测试将持续约 2 分钟，请保持高度专注。</li>
+                        </ul>
+                    </div>
+                    <button class="start-btn" onclick="startGame()">开始测试</button>
+                </div>
+            </div>
+
+            <div class="cpt-display" id="cpt-display" style="display: none;">
+                <span id="target-letter">A</span>
+            </div>
+            
+            <!-- Click area for mobile/touch -->
+            <div id="click-area" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 5; display: none; cursor: pointer;"></div>
+
+            <div class="modal-overlay" id="result-modal">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h2><i class="fas fa-flag-checkered"></i> 测试完成</h2>
+                    </div>
+                    <div class="modal-body">
+                        <div class="result-stat">
+                            <span class="stat-label">总时长</span>
+                            <span class="stat-value" id="total-time">02:00</span>
+                        </div>
+                        <div class="result-stat">
+                            <span class="stat-label">正确命中 (Hits)</span>
+                            <span class="stat-value highlight" id="result-hits">0</span>
+                        </div>
+                        <div class="result-stat">
+                            <span class="stat-label">漏报 (Misses)</span>
+                            <span class="stat-value" id="result-misses">0</span>
+                        </div>
+                        <div class="result-stat">
+                            <span class="stat-label">误报 (False Alarms)</span>
+                            <span class="stat-value warning" id="result-fa">0</span>
+                        </div>
+                        <div class="result-stat">
+                            <span class="stat-label">平均反应时间</span>
+                            <span class="stat-value" id="result-rt">0 ms</span>
+                        </div>
+                        <p class="feedback-text" id="feedback-text">保持专注！</p>
+                    </div>
+                    <div class="modal-footer">
+                        <button class="btn-primary" onclick="location.reload()">再试一次</button>
+                        <a href="index.html" class="btn-secondary">返回大厅</a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <script src="cpt.js"></script>
+</body>
+</html>

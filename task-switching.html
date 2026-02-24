@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>任务切换 - 认知能力训练</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+</head>
+<body>
+    <div class="game-container">
+        <header class="game-header">
+            <a href="index.html" class="back-btn"><i class="fas fa-arrow-left"></i> 返回</a>
+            <h1>任务切换 (Task Switching)</h1>
+            <div class="score-board">
+                <div class="score-item">
+                    <span class="label">正确率</span>
+                    <span class="value" id="accuracy">0%</span>
+                </div>
+                <div class="score-item">
+                    <span class="label">转换成本</span>
+                    <span class="value" id="switch-cost">-- ms</span>
+                </div>
+            </div>
+        </header>
+
+        <div class="game-area" id="game-area">
+            <!-- Instruction Overlay -->
+            <div class="instruction-overlay" id="instruction-overlay">
+                <div class="instruction-content">
+                    <h2><i class="fas fa-random"></i> 任务切换训练</h2>
+                    <p>本任务测试您在不同规则间快速切换的能力。</p>
+                    
+                    <div class="rule-box">
+                        <h3>规则说明</h3>
+                        <p>屏幕中央会出现一个数字 (1-9, 不含5)。根据背景颜色判断规则：</p>
+                        <div class="rule-grid">
+                            <div class="rule-item" style="border-left: 5px solid #3498db;">
+                                <h4>蓝色背景：判断奇偶</h4>
+                                <ul>
+                                    <li><strong>奇数</strong> (1,3,7,9) → 按 <strong>A</strong> 键</li>
+                                    <li><strong>偶数</strong> (2,4,6,8) → 按 <strong>L</strong> 键</li>
+                                </ul>
+                            </div>
+                            <div class="rule-item" style="border-left: 5px solid #e67e22;">
+                                <h4>橙色背景：判断大小</h4>
+                                <ul>
+                                    <li><strong>小于5</strong> (1,2,3,4) → 按 <strong>A</strong> 键</li>
+                                    <li><strong>大于5</strong> (6,7,8,9) → 按 <strong>L</strong> 键</li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="key-hints">
+                        <div class="key">A</div>
+                        <span>左手食指</span>
+                        <div class="key">L</div>
+                        <span>右手食指</span>
+                    </div>
+
+                    <button class="start-btn" onclick="startGame()">开始测试</button>
+                </div>
+            </div>
+
+            <!-- Game Display -->
+            <div class="ts-display" id="ts-display" style="display: none;">
+                <!-- Legends -->
+                <div class="legends">
+                    <div class="legend-left">
+                        <div>A键</div>
+                        <div class="legend-blue">奇数</div>
+                        <div class="legend-orange">小于5</div>
+                    </div>
+                    <div class="legend-right">
+                        <div>L键</div>
+                        <div class="legend-blue">偶数</div>
+                        <div class="legend-orange">大于5</div>
+                    </div>
+                </div>
+
+                <!-- Stimulus Box -->
+                <div class="stimulus-card" id="stimulus-card">
+                    <span id="stimulus-number">?</span>
+                </div>
+            </div>
+
+            <!-- Result Overlay -->
+            <div class="result-modal" id="result-modal" style="display: none;">
+                <div class="modal-content">
+                    <div class="result-icon"><i class="fas fa-chart-line"></i></div>
+                    <h2>测试完成</h2>
+                    <div class="stats-grid">
+                        <div class="stat-item">
+                            <span class="stat-label">总正确率</span>
+                            <span class="stat-value" id="final-accuracy">0%</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-label">转换成本</span>
+                            <span class="stat-value" id="final-switch-cost">0 ms</span>
+                            <span class="stat-desc">切换任务带来的延迟</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-label">平均反应时</span>
+                            <span class="stat-value" id="final-rt">0 ms</span>
+                        </div>
+                    </div>
+                    <div class="action-buttons">
+                        <button class="restart-btn" onclick="location.reload()">再试一次</button>
+                        <a href="index.html" class="home-btn">返回主页</a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <script src="task-switching.js"></script>
+</body>
+</html>
