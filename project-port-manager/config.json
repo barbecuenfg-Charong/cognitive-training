@@ -1,0 +1,96 @@
+{
+  "projects": [
+    {
+      "id": "word-learning-20260214",
+      "name": "Word Learning Project (20260214)",
+      "root_path": "D:\\Docs\\03AI\\01Trae\\20260214work001",
+      "frontend_url": "http://127.0.0.1:3007",
+      "services": [
+        {
+          "id": "word-backend",
+          "name": "Backend API",
+          "type": "backend",
+          "cwd": "D:\\Docs\\03AI\\01Trae\\20260214work001\\backend",
+          "command": "py -3.11 -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload",
+          "ports": [
+            8000
+          ]
+        },
+        {
+          "id": "word-frontend",
+          "name": "Web Interface",
+          "type": "frontend",
+          "cwd": "D:\\Docs\\03AI\\01Trae\\20260214work001\\frontend",
+          "command": "npm run dev",
+          "ports": [
+            3007
+          ]
+        }
+      ]
+    },
+    {
+      "id": "stock-analysis-20260215",
+      "name": "股票趋势分析系统 20260215",
+      "root_path": "d:\\Docs\\03AI\\02TraeCN\\20260215work001",
+      "frontend_url": "http://127.0.0.1:3000/",
+      "services": [
+        {
+          "id": "stock-backend-dev",
+          "name": "Backend-Dev",
+          "type": "backend",
+          "cwd": "d:\\Docs\\03AI\\02TraeCN\\20260215work001\\backend",
+          "command": ".\\venv\\Scripts\\python.exe start_server.py",
+          "ports": [
+            8003
+          ]
+        },
+        {
+          "id": "stock-frontend-dev",
+          "name": "Frontend-Dev",
+          "type": "frontend",
+          "cwd": "d:\\Docs\\03AI\\02TraeCN\\20260215work001\\frontend",
+          "command": "node node_modules/vite/bin/vite.js",
+          "ports": [
+            3000
+          ]
+        }
+      ]
+    },
+    {
+      "id": "ssq-prediction-20260222",
+      "name": "双色球预测系统 (SSQ Prediction)",
+      "root_path": "D:\\Docs\\03AI\\01Trae\\20260222work001",
+      "frontend_url": "http://127.0.0.1:5001",
+      "services": [
+        {
+          "id": "ssq-web",
+          "name": "Web Dashboard",
+          "type": "frontend",
+          "cwd": "D:\\Docs\\03AI\\01Trae\\20260222work001",
+          "command": "python app.py",
+          "ports": [
+            5001
+          ]
+        }
+      ]
+    },
+    {
+      "id": "numerology-20260224",
+      "name": "Numerology & Healing Platform",
+      "root_path": "D:\\Docs\\03AI\\01Trae\\20260224work001\\numerology",
+      "frontend_url": "http://127.0.0.1:3001",
+      "services": [
+        {
+          "id": "numerology-frontend",
+          "name": "Web UI",
+          "type": "frontend",
+          "cwd": "D:\\Docs\\03AI\\01Trae\\20260224work001\\numerology",
+          "command": "npm run dev",
+          "ports": [
+            3001
+          ]
+        }
+      ]
+    }
+  ]
+}

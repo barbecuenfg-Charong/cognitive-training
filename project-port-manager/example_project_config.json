@@ -1,0 +1,24 @@
+{
+  "id": "example-project-2026",
+  "name": "示例项目 (Example Project)",
+  "root_path": "D:\\Docs\\03AI\\01Trae\\example_project",
+  "frontend_url": "http://127.0.0.1:3005",
+  "services": [
+    {
+      "id": "example-backend",
+      "name": "Backend Service",
+      "type": "backend",
+      "cwd": "D:\\Docs\\03AI\\01Trae\\example_project\\backend",
+      "command": "python -m uvicorn app:app --port 8001",
+      "ports": [8001]
+    },
+    {
+      "id": "example-frontend",
+      "name": "Frontend Service",
+      "type": "frontend",
+      "cwd": "D:\\Docs\\03AI\\01Trae\\example_project\\frontend",
+      "command": "npm run dev",
+      "ports": [3005]
+    }
+  ]
+}
