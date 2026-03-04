@@ -34,6 +34,8 @@
    GLM5 每个游戏说明文档镜像索引（`doc/glm5-game-specs`）。
 11. [11-back-button-standard.md](11-back-button-standard.md)  
    游戏页面返回按钮统一规范（命名、结构、位置与验收标准）。
+12. [12-repo-cleanup-numerology-removal.md](12-repo-cleanup-numerology-removal.md)  
+   仓库清理记录：移除与主应用无引用关系的 `numerology/` 独立脚手架目录。
 
 ## 源汇总镜像
 
@@ -55,6 +57,6 @@
 
 ## 文档版本
 
-- 版本：`v1.0`
-- 生成日期：`2026-02-27`
+- 版本：`v1.1`
+- 生成日期：`2026-03-04`
 - 适用范围：`glm5` 与 `gpt` 文档体系融合
