@@ -7,6 +7,14 @@
 - 综合文档入口（仓库渲染）：[doc/INDEX.md](doc/INDEX.md)
 - 页面入口（GitHub Pages）：`/doc/index.html`
 
+## 当前基线（2026-05-10）
+
+后续优化请优先阅读以下文档，而不是从早期功能清单推断状态：
+
+- [模块状态矩阵](doc/16-module-status-matrix-20260510.md)
+- [TrainingResult v1 数据契约](doc/17-training-result-schema-v1.md)
+- [基础加固实施记录](doc/18-foundation-hardening-report-20260510.md)
+
 ## 1. 核心架构：十大认知系统 (The 10 Cognitive Systems)
 
 本项目基于现代认知心理学和神经科学理论，构建了覆盖大脑核心功能的十大训练系统：

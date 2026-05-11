@@ -12,6 +12,8 @@ let trials = [];
 let responses = [];
 let stimulusTimeoutId = null;
 let hasResponded = false;
+let sessionStartedAt = null;
+let hasSavedSession = false;
 
 // DOM Elements
 const instructionOverlay = document.getElementById('instruction-overlay');
@@ -46,6 +48,8 @@ function startGame() {
     currentTrial = 0;
     responses = [];
     trials = generateTrials();
+    sessionStartedAt = new Date();
+    hasSavedSession = false;
     
     instructionOverlay.style.display = 'none';
     gameDisplay.style.display = 'flex';
@@ -95,6 +99,8 @@ function runTrial() {
 }
 
 function handleResponse() {
+    if (!isGameActive || hasResponded) return;
+
     hasResponded = true;
     clearTimeout(stimulusTimeoutId);
     
@@ -126,6 +132,8 @@ function handleResponse() {
 
 function handleTimeout() {
     if (hasResponded) return;
+
+    hasResponded = true;
     
     const trial = trials[currentTrial];
     const isCorrect = (trial.type === 'nogo'); // Correct if didn't press on No-Go
@@ -147,10 +155,19 @@ function handleTimeout() {
 }
 
 function recordResponse(type, pressed, rt, correct) {
+    const isGo = type === 'go';
+    const isNoGo = type === 'nogo';
+    const rtMs = pressed ? rt : null;
+
     responses.push({
+        trialIndex: currentTrial,
         type: type,
+        isGo: isGo,
+        isNoGo: isNoGo,
         pressed: pressed,
-        rt: rt,
+        responded: pressed,
+        rt: rtMs,
+        rtMs: rtMs,
         correct: correct
     });
     updateLiveStats();
@@ -167,6 +184,77 @@ function updateLiveStats() {
         
     accuracyDisplay.textContent = `${accuracy}%`;
     if (avgRt > 0) avgRtDisplay.textContent = `${avgRt} ms`;
+}
+
+function average(values) {
+    const validValues = values.filter((value) => Number.isFinite(value));
+    if (validValues.length === 0) return 0;
+    return Math.round(validValues.reduce((sum, value) => sum + value, 0) / validValues.length);
+}
+
+function buildSummary() {
+    const totalTrials = responses.length;
+    const goTrials = responses.filter(r => r.isGo).length;
+    const noGoTrials = responses.filter(r => r.isNoGo).length;
+    const hitCount = responses.filter(r => r.isGo && r.responded).length;
+    const missCount = responses.filter(r => r.isGo && !r.responded).length;
+    const falseAlarmCount = responses.filter(r => r.isNoGo && r.responded).length;
+    const correctRejectionCount = responses.filter(r => r.isNoGo && !r.responded).length;
+    const correctCount = hitCount + correctRejectionCount;
+    const hitRts = responses
+        .filter(r => r.isGo && r.responded && r.correct)
+        .map(r => r.rtMs);
+
+    return {
+        totalTrials,
+        goTrials,
+        noGoTrials,
+        hitCount,
+        missCount,
+        falseAlarmCount,
+        correctRejectionCount,
+        accuracy: totalTrials > 0 ? correctCount / totalTrials : 0,
+        hitRate: goTrials > 0 ? hitCount / goTrials : 0,
+        falseAlarmRate: noGoTrials > 0 ? falseAlarmCount / noGoTrials : 0,
+        meanRtMs: average(hitRts)
+    };
+}
+
+function saveTrainingSession(finishedAt) {
+    if (hasSavedSession || !window.TrainingResults || typeof window.TrainingResults.saveSession !== 'function') return;
+
+    const startedAt = sessionStartedAt || finishedAt;
+    const durationMs = Math.max(0, finishedAt.getTime() - startedAt.getTime());
+    const summary = buildSummary();
+
+    window.TrainingResults.saveSession({
+        moduleId: "go-no-go",
+        gameId: "go-no-go",
+        gameName: "Go/No-Go 抑制控制",
+        startedAt,
+        finishedAt,
+        durationMs,
+        score: Math.round(summary.accuracy * 100),
+        summary,
+        trials: responses.map((trial) => ({
+            trialIndex: trial.trialIndex,
+            type: trial.type,
+            isGo: trial.isGo,
+            isNoGo: trial.isNoGo,
+            responded: trial.responded,
+            correct: trial.correct,
+            rtMs: trial.rtMs
+        })),
+        metrics: {
+            accuracy: `${Math.round(summary.accuracy * 100)}%`,
+            hitRate: `${Math.round(summary.hitRate * 100)}%`,
+            falseAlarmRate: `${Math.round(summary.falseAlarmRate * 100)}%`,
+            meanRt: `${summary.meanRtMs}ms`
+        },
+        tags: ["attention", "inhibition", "go-no-go"]
+    });
+
+    hasSavedSession = true;
 }
 
 function endGame() {
@@ -191,6 +279,8 @@ function endGame() {
     document.getElementById('go-accuracy').textContent = `${goAccuracy}%`;
     document.getElementById('nogo-accuracy').textContent = `${nogoAccuracy}%`;
     document.getElementById('final-rt').textContent = `${avgRt} ms`;
+
+    saveTrainingSession(new Date());
     
     gameDisplay.style.display = 'none';
     resultModal.style.display = 'flex';

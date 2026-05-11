@@ -8,8 +8,16 @@ const GameState = {
     score: 0,
     totalLevels: 8, // Fixed number of levels for MVP
     levels: [],
-    userAnswers: []
+    userAnswers: [],
+    trials: [],
+    startedAt: null,
+    levelStartedAt: null,
+    sessionSaved: false,
+    answerLocked: false
 };
+
+const GAME_ID = "raven";
+const GAME_NAME = "瑞文推理";
 
 // --- SVG Generator ---
 const SVG_NS = "http://www.w3.org/2000/svg";
@@ -248,6 +256,11 @@ function initGame() {
     GameState.currentLevel = 0;
     GameState.score = 0;
     GameState.userAnswers = [];
+    GameState.trials = [];
+    GameState.startedAt = new Date();
+    GameState.levelStartedAt = null;
+    GameState.sessionSaved = false;
+    GameState.answerLocked = false;
     
     renderLevel();
 }
@@ -296,6 +309,7 @@ function renderLevel() {
     const level = GameState.levels[GameState.currentLevel];
     const gridEl = document.getElementById('matrix-grid');
     const optionsEl = document.getElementById('options-area');
+    GameState.answerLocked = false;
     
     // Update Info
     document.getElementById('level-display').textContent = `${GameState.currentLevel + 1} / ${GameState.levels.length}`;
@@ -329,10 +343,38 @@ function renderLevel() {
         div.onclick = () => checkAnswer(opt);
         optionsEl.appendChild(div);
     });
+
+    GameState.levelStartedAt = new Date();
 }
 
 function checkAnswer(selectedOption) {
-    if (selectedOption.correct) {
+    if (GameState.answerLocked) {
+        return;
+    }
+
+    GameState.answerLocked = true;
+
+    const level = GameState.levels[GameState.currentLevel];
+    const answeredAt = new Date();
+    const levelStartedAt = GameState.levelStartedAt || GameState.startedAt || answeredAt;
+    const startedAt = GameState.startedAt || levelStartedAt;
+    const correct = Boolean(selectedOption.correct);
+    const userAnswer = serializeAnswer(selectedOption);
+    const correctAnswer = serializeAnswer(level.answer);
+
+    GameState.userAnswers.push(userAnswer);
+    GameState.trials.push({
+        level: GameState.currentLevel + 1,
+        rule: level.rule,
+        puzzleType: level.rule,
+        userAnswer,
+        correctAnswer,
+        correct,
+        rtMs: Math.max(0, answeredAt.getTime() - levelStartedAt.getTime()),
+        elapsedMs: Math.max(0, answeredAt.getTime() - startedAt.getTime())
+    });
+
+    if (correct) {
         GameState.score += 10;
         showFeedback(true);
     } else {
@@ -354,11 +396,76 @@ function showFeedback(isCorrect) {
     // For now, just proceeding
 }
 
+function serializeAnswer(answer) {
+    const result = {};
+    if (!answer || typeof answer !== "object") {
+        return result;
+    }
+
+    Object.keys(answer).forEach(key => {
+        if (key !== "correct") {
+            result[key] = answer[key];
+        }
+    });
+
+    return result;
+}
+
+function saveTrainingResult(finishedAt) {
+    if (GameState.sessionSaved || !window.TrainingResults || typeof window.TrainingResults.saveSession !== "function") {
+        return;
+    }
+
+    GameState.sessionSaved = true;
+
+    const startedAt = GameState.startedAt || finishedAt;
+    const durationMs = Math.max(0, finishedAt.getTime() - startedAt.getTime());
+    const totalLevels = GameState.levels.length;
+    const totalTrials = GameState.trials.length;
+    const correctCount = GameState.trials.filter(trial => trial.correct).length;
+    const accuracy = totalTrials > 0 ? correctCount / totalTrials : 0;
+    const score = GameState.score;
+
+    try {
+        window.TrainingResults.saveSession({
+            moduleId: GAME_ID,
+            gameId: GAME_ID,
+            gameName: GAME_NAME,
+            startedAt,
+            finishedAt,
+            durationMs,
+            score,
+            summary: {
+                totalTrials,
+                totalLevels,
+                correctCount,
+                accuracy,
+                score
+            },
+            trials: GameState.trials.map(trial => ({
+                ...trial,
+                userAnswer: { ...trial.userAnswer },
+                correctAnswer: { ...trial.correctAnswer }
+            })),
+            metrics: {
+                score,
+                accuracy: `${Math.round(accuracy * 100)}%`,
+                correctCount,
+                totalTrials
+            },
+            tags: ["reasoning", "raven"]
+        });
+    } catch (error) {
+        console.error("Failed to save Raven training result", error);
+    }
+}
+
 function gameOver() {
     const modal = document.getElementById('result-modal');
     const score = GameState.score;
     const maxScore = GameState.levels.length * 10;
     const accuracy = Math.round((score / maxScore) * 100);
+    const finishedAt = new Date();
 
     document.getElementById('final-score').textContent = score;
     document.getElementById('final-accuracy').textContent = `${accuracy}%`;
@@ -371,6 +478,7 @@ function gameOver() {
 
     document.getElementById('performance-feedback').textContent = feedback;
     modal.classList.remove('hidden');
+    saveTrainingResult(finishedAt);
     
     // Final progress bar update
     document.getElementById('progress-bar').style.width = '100%';

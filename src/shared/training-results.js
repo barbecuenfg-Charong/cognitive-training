@@ -1,5 +1,7 @@
 (function initTrainingResults(global) {
     const STORAGE_KEY = "cognitive-training:sessions";
+    const SCHEMA_VERSION = "training-result-v1";
+    const MAX_TRIALS_PER_SESSION = 500;
 
     function safeParse(value, fallback) {
         try {
@@ -31,6 +33,30 @@
         return new Date(b.finishedAt).getTime() - new Date(a.finishedAt).getTime();
     }
 
+    function toPlainObject(value) {
+        if (!value || typeof value !== "object" || Array.isArray(value)) {
+            return {};
+        }
+        try {
+            return JSON.parse(JSON.stringify(value));
+        } catch (_error) {
+            return {};
+        }
+    }
+
+    function normalizeTrials(value) {
+        if (!Array.isArray(value)) {
+            return [];
+        }
+        return value.slice(0, MAX_TRIALS_PER_SESSION).map((item, index) => {
+            const trial = toPlainObject(item);
+            if (!Object.prototype.hasOwnProperty.call(trial, "index")) {
+                trial.index = index;
+            }
+            return trial;
+        });
+    }
+
     function normalizeSession(session) {
         const finishedAt = session.finishedAt ? new Date(session.finishedAt) : new Date();
         const startedAt = session.startedAt ? new Date(session.startedAt) : new Date(finishedAt.getTime());
@@ -38,15 +64,24 @@
             ? Math.max(0, Math.round(session.durationMs))
             : Math.max(0, finishedAt.getTime() - startedAt.getTime());
 
+        const moduleId = session.moduleId || session.gameId || "unknown";
+        const summary = toPlainObject(session.summary);
+        const metrics = toPlainObject(session.metrics);
+        const trials = normalizeTrials(session.trials);
+
         return {
+            schemaVersion: session.schemaVersion || SCHEMA_VERSION,
             id: session.id || `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-            gameId: session.gameId || "unknown",
+            moduleId,
+            gameId: session.gameId || moduleId,
             gameName: session.gameName || "Unknown Game",
             startedAt: startedAt.toISOString(),
             finishedAt: finishedAt.toISOString(),
             durationMs,
             score: Number.isFinite(session.score) ? session.score : null,
-            metrics: session.metrics && typeof session.metrics === "object" ? session.metrics : {},
+            summary,
+            trials,
+            metrics,
             tags: Array.isArray(session.tags) ? session.tags : []
         };
     }

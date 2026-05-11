@@ -36,6 +36,24 @@
    游戏页面返回按钮统一规范（命名、结构、位置与验收标准）。
 12. [12-repo-cleanup-numerology-removal.md](12-repo-cleanup-numerology-removal.md)  
    仓库清理记录：移除与主应用无引用关系的 `numerology/` 独立脚手架目录。
+13. [13-external-solutions-research.md](13-external-solutions-research.md)
+   外部方案检索报告：36个认知训练模块的开源参考实现、科学范式标准与改进方向。
+14. [14-next-steps-and-open-questions.md](14-next-steps-and-open-questions.md)
+   下一步工作规划与待讨论事项：分阶段实施计划、6项待决策问题、启动检查清单。
+15. [15-current-state-and-optimization-review-20260510.md](15-current-state-and-optimization-review-20260510.md)
+   主 agent 现状复核：项目边界、协同审计结论、主要矛盾、待优化项与行动顺序。
+16. [16-module-status-matrix-20260510.md](16-module-status-matrix-20260510.md)
+   模块状态矩阵：36 个入口的实现状态、落库状态、内容池风险和下一步动作。
+17. [17-training-result-schema-v1.md](17-training-result-schema-v1.md)
+   训练结果数据契约：`TrainingResult` v1 字段、规则和后续模块接入要求。
+18. [18-foundation-hardening-report-20260510.md](18-foundation-hardening-report-20260510.md)
+   基础加固实施记录：状态矩阵、数据契约、门禁、P0 修复和后续可启动范围。
+19. [19-parameterized-probability-modules-report-20260510.md](19-parameterized-probability-modules-report-20260510.md)
+   参数化概率模块并行优化记录：Base Rate、Bayes Update、Monty Hall、Gambler Fallacy、Report 和门禁覆盖的协同收口。
+20. [20-attention-training-results-closure-20260510.md](20-attention-training-results-closure-20260510.md)
+   注意力训练模块结果落库闭环记录：Schulte、Flanker、Focus、CPT、Stroop 的 TrainingResults 接入、审计修复与验证结果。
+21. [21-all-training-results-closure-20260511.md](21-all-training-results-closure-20260511.md)
+   33 个训练任务 TrainingResults 全量接入闭环记录：本轮 6 个补齐模块、33/33 结果、验收结论与剩余落地计划。
 
 ## 源汇总镜像
 
@@ -57,6 +75,6 @@
 
 ## 文档版本
 
-- 版本：`v1.1`
-- 生成日期：`2026-03-04`
+- 版本：`v1.4`
+- 生成日期：`2026-05-10`
 - 适用范围：`glm5` 与 `gpt` 文档体系融合

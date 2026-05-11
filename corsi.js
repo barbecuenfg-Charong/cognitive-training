@@ -1,4 +1,7 @@
 document.addEventListener('DOMContentLoaded', () => {
+    const MODULE_ID = 'corsi';
+    const GAME_NAME = '科西方块';
+
     const startBtn = document.getElementById('start-btn');
     const stopBtn = document.getElementById('stop-btn');
     const restartBtn = document.getElementById('restart-btn');
@@ -25,11 +28,19 @@ document.addEventListener('DOMContentLoaded', () => {
     let blockCount = 9;
     let levelErrorCount = 0;
     let maxErrorsPerLevel = 1;
+    let sessionStartedAt = null;
+    let sessionStartedMs = 0;
+    let responseStartedAt = 0;
+    let trialLog = [];
+    let sessionSaved = false;
+    let highestCorrectLevel = 0;
+    let maxLevel = currentLevel;
 
     // Audio context for sound feedback
     const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
     
     startBtn.addEventListener('click', startGame);
+    stopBtn.addEventListener('click', () => endGame(true));
     restartBtn.addEventListener('click', () => {
         resultModal.classList.add('hidden');
         startGame();
@@ -110,19 +121,105 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
+    function getMode() {
+        return isBackwardMode ? 'backward' : 'forward';
+    }
+
+    function getMemorySpan() {
+        return Math.max(0, highestCorrectLevel);
+    }
+
+    function copyTrial(trial) {
+        return {
+            ...trial,
+            sequence: trial.sequence.slice(),
+            userSequence: trial.userSequence.slice()
+        };
+    }
+
+    function recordTrial(correct) {
+        const now = Date.now();
+        trialLog.push({
+            index: trialLog.length,
+            level: currentLevel,
+            mode: getMode(),
+            sequence: sequence.slice(),
+            userSequence: userSequence.slice(),
+            correct,
+            rtMs: responseStartedAt > 0 ? Math.max(0, now - responseStartedAt) : 0,
+            elapsedMs: sessionStartedMs > 0 ? Math.max(0, now - sessionStartedMs) : 0
+        });
+    }
+
+    function buildSummary() {
+        const totalTrials = trialLog.length;
+        const correctCount = trialLog.filter(trial => trial.correct).length;
+        const accuracy = totalTrials > 0 ? correctCount / totalTrials : 0;
+
+        return {
+            mode: getMode(),
+            blockCount,
+            maxLevel,
+            currentLevel,
+            score,
+            totalTrials,
+            correctCount,
+            accuracy,
+            memorySpan: getMemorySpan()
+        };
+    }
+
+    function saveTrainingResult(finishedAt, durationMs) {
+        if (sessionSaved || !sessionStartedAt) return;
+        sessionSaved = true;
+
+        if (!window.TrainingResults || typeof window.TrainingResults.saveSession !== 'function') return;
+
+        const summary = buildSummary();
+        window.TrainingResults.saveSession({
+            moduleId: MODULE_ID,
+            gameId: MODULE_ID,
+            gameName: GAME_NAME,
+            startedAt: sessionStartedAt,
+            finishedAt,
+            durationMs,
+            score,
+            summary,
+            trials: trialLog.map(copyTrial),
+            metrics: {
+                mode: summary.mode,
+                accuracy: `${Math.round(summary.accuracy * 100)}%`,
+                memorySpan: summary.memorySpan,
+                totalTrials: summary.totalTrials
+            },
+            tags: ['memory', 'corsi']
+        });
+    }
+
     function startGame() {
         if (isPlaying) return;
         
+        const selectedMode = document.querySelector('input[name="mode"]:checked');
+        isBackwardMode = selectedMode ? selectedMode.value === 'backward' : isBackwardMode;
         score = 0;
         currentLevel = parseInt(startLevelInput.value) || 3;
         blockCount = parseInt(blockCountInput.value) || 9;
         if (blockCount < 2) blockCount = 2;
         if (blockCount > 20) blockCount = 20;
+        levelErrorCount = 0;
+        sessionStartedAt = new Date();
+        sessionStartedMs = sessionStartedAt.getTime();
+        responseStartedAt = 0;
+        trialLog = [];
+        sessionSaved = false;
+        highestCorrectLevel = Math.max(0, currentLevel - 1);
+        maxLevel = currentLevel;
         
         isPlaying = true;
         
         scoreDisplay.textContent = score;
         levelDisplay.textContent = currentLevel;
+        resultModal.classList.add('hidden');
         startBtn.style.display = 'none';
         stopBtn.style.display = 'inline-block';
         startLevelInput.disabled = true;
@@ -135,9 +232,13 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function startRound() {
+        if (!isPlaying) return;
+
         userSequence = [];
         sequence = [];
         isShowingSequence = true;
+        responseStartedAt = 0;
+        maxLevel = Math.max(maxLevel, currentLevel);
         messageDisplay.textContent = "请观察...";
         
         // Generate sequence
@@ -161,6 +262,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (i >= sequence.length) {
                 clearInterval(interval);
                 isShowingSequence = false;
+                responseStartedAt = Date.now();
                 messageDisplay.textContent = isBackwardMode ? "请逆序点击!" : "请按顺序点击!";
                 gameArea.style.cursor = 'pointer';
                 return;
@@ -205,6 +307,8 @@ document.addEventListener('DOMContentLoaded', () => {
         if (index !== expectedIndex) {
             block.classList.add('error');
             playSound(150, 'sawtooth', 0.3);
+            isShowingSequence = true;
+            recordTrial(false);
             
             levelErrorCount++;
             
@@ -214,6 +318,7 @@ document.addEventListener('DOMContentLoaded', () => {
             } else {
                 messageDisplay.textContent = "错误! 同级再试一次...";
                 setTimeout(() => {
+                    if (!isPlaying) return;
                     block.classList.remove('error');
                     startRound();
                 }, 1500);
@@ -222,6 +327,9 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         if (userSequence.length === sequence.length) {
+            isShowingSequence = true;
+            recordTrial(true);
+            highestCorrectLevel = Math.max(highestCorrectLevel, currentLevel);
             score += currentLevel * 10;
             scoreDisplay.textContent = score;
             messageDisplay.textContent = "正确! 难度升级...";
@@ -232,12 +340,17 @@ document.addEventListener('DOMContentLoaded', () => {
             currentLevel++;
             levelDisplay.textContent = currentLevel;
             
-            setTimeout(startRound, 1500);
+            setTimeout(() => {
+                if (isPlaying) startRound();
+            }, 1500);
         }
     }
 
     function endGame(forced = false) {
+        if (!isPlaying && (forced || sessionSaved)) return;
+
         isPlaying = false;
+        isShowingSequence = false;
         
         startBtn.style.display = 'inline-block';
         startBtn.disabled = false;
@@ -248,13 +361,20 @@ document.addEventListener('DOMContentLoaded', () => {
         
         if (forced) {
             messageDisplay.textContent = "已停止";
+            sessionStartedAt = null;
+            sessionStartedMs = 0;
+            responseStartedAt = 0;
             return;
         }
         
-        finalLevelDisplay.textContent = currentLevel - 1; // Last successful level
+        const finishedAt = new Date();
+        const durationMs = sessionStartedAt
+            ? Math.max(0, finishedAt.getTime() - sessionStartedAt.getTime())
+            : 0;
+        const span = getMemorySpan();
+        finalLevelDisplay.textContent = span; // Last successful level
         finalScoreDisplay.textContent = score;
         
-        const span = currentLevel - 1;
         let rating = "";
         if (span >= 7) rating = "评级: 卓越 (Excellent)";
         else if (span >= 6) rating = "评级: 优秀 (Good)";
@@ -262,6 +382,7 @@ document.addEventListener('DOMContentLoaded', () => {
         else rating = "评级: 需加强 (Below Average)";
         
         memorySpanRating.textContent = rating;
+        saveTrainingResult(finishedAt, durationMs);
         
         setTimeout(() => {
             resultModal.classList.remove('hidden');

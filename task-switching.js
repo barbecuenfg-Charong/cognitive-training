@@ -15,6 +15,7 @@ let isGameActive = false;
 let trialStartTime = 0;
 let canRespond = false;
 let currentPhase = "test";
+let sessionStartedAt = null;
 
 // DOM Elements
 const instructionOverlay = document.getElementById("instruction-overlay");
@@ -32,6 +33,7 @@ const practiceStatus = document.getElementById("practice-status");
 // Event Listener for Keys
 document.addEventListener("keydown", (e) => {
     if (!isGameActive || !canRespond) return;
+    if (e.repeat) return;
 
     const key = e.key.toLowerCase();
     if (key === "a" || key === "l") {
@@ -58,6 +60,7 @@ function beginSession(phase) {
     isGameActive = true;
     canRespond = false;
     currentTrial = 0;
+    sessionStartedAt = new Date();
     trials = generateTrials(totalTrials);
     responses = [];
 
@@ -125,7 +128,13 @@ function handleResponse(key) {
 
     canRespond = false;
     const rt = Date.now() - trialStartTime;
-    if (rt < 100) return;
+    if (rt < 100) {
+        trialStartTime = Date.now();
+        canRespond = true;
+        stimulusCard.classList.add("shake");
+        setTimeout(() => stimulusCard.classList.remove("shake"), 180);
+        return;
+    }
 
     const trial = trials[currentTrial];
     const isCorrect = (key === trial.correctAnswer);
@@ -180,6 +189,7 @@ function endSession() {
     isGameActive = false;
     canRespond = false;
     const results = calculateResults();
+    const finishedAt = new Date();
 
     if (currentPhase === "practice") {
         gameDisplay.style.display = "none";
@@ -199,6 +209,39 @@ function endSession() {
     switchCostDisplay.textContent = `${results.switchCost} ms`;
     gameDisplay.style.display = "none";
     resultModal.style.display = "flex";
+
+    if (window.TrainingResults) {
+        window.TrainingResults.saveSession({
+            moduleId: "task-switching",
+            gameId: "task-switching",
+            gameName: "任务切换",
+            startedAt: sessionStartedAt,
+            finishedAt,
+            durationMs: finishedAt.getTime() - sessionStartedAt.getTime(),
+            score: results.accuracy,
+            summary: {
+                totalTrials,
+                correctCount: responses.filter(r => r.correct).length,
+                accuracy: results.accuracy / 100,
+                meanRtMs: results.meanRT,
+                switchCostMs: results.switchCost
+            },
+            trials: responses.map((item) => ({
+                index: item.index,
+                task: item.task,
+                isSwitch: item.isSwitch,
+                rtMs: item.rt,
+                correct: item.correct,
+                userKey: item.userKey
+            })),
+            metrics: {
+                accuracy: `${results.accuracy}%`,
+                meanRT: `${results.meanRT}ms`,
+                switchCost: `${results.switchCost}ms`
+            },
+            tags: ["executive", "task-switching"]
+        });
+    }
 }
 
 window.startGame = startGame;

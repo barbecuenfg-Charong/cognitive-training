@@ -1,12 +1,9 @@
-const ALL_QUESTIONS = [
-    { id: "br-1", baseRate: 1, sensitivity: 95, specificity: 90 },
-    { id: "br-2", baseRate: 2, sensitivity: 92, specificity: 88 },
-    { id: "br-3", baseRate: 5, sensitivity: 90, specificity: 90 },
-    { id: "br-4", baseRate: 10, sensitivity: 85, specificity: 85 },
-    { id: "br-5", baseRate: 20, sensitivity: 90, specificity: 80 },
-    { id: "br-6", baseRate: 30, sensitivity: 88, specificity: 75 }
-];
-const CONTENT_VERSION = "base-rate-v2-seeded";
+const QUESTION_COUNT = 10;
+const CONTENT_VERSION = "base-rate-v3-parameterized";
+const BASE_RATE_VALUES = [1, 2, 3, 4, 5, 8, 10, 12, 15, 20, 25, 30, 35, 40];
+const SENSITIVITY_VALUES = [72, 75, 78, 80, 82, 85, 88, 90, 92, 95, 97, 99];
+const SPECIFICITY_VALUES = [70, 75, 78, 80, 82, 85, 88, 90, 92, 95, 97, 99];
+const POPULATION_SIZE = 10000;
 
 let index = 0;
 let correctCount = 0;
@@ -15,6 +12,8 @@ let sessionStartedAt = null;
 let sessionSeed = "";
 let sessionQuestions = [];
 let questionOrder = [];
+let responses = [];
+let trialStartTime = 0;
 
 const startScreen = document.getElementById("start-screen");
 const panel = document.getElementById("br-panel");
@@ -33,9 +32,52 @@ function posterior(baseRate, sensitivity, specificity) {
     return Math.round((numerator / denominator) * 100);
 }
 
-function buildOptions(correctValue, heuristicValue, rng) {
-    const set = new Set([correctValue, heuristicValue]);
-    const candidates = [1, 3, 5, 8, 12, 15, 20, 25, 35, 45, 55, 65, 75, 85, 95];
+function pickOne(values, rng) {
+    return values[Math.floor(rng() * values.length)];
+}
+
+function clampPercent(value) {
+    return Math.max(1, Math.min(99, Math.round(value)));
+}
+
+function naturalFrequency(baseRate, sensitivity, specificity) {
+    const diseased = Math.round(POPULATION_SIZE * (baseRate / 100));
+    const healthy = POPULATION_SIZE - diseased;
+    const truePositive = Math.round(diseased * (sensitivity / 100));
+    const falsePositive = Math.round(healthy * ((100 - specificity) / 100));
+    const positiveTotal = truePositive + falsePositive;
+
+    return {
+        population: POPULATION_SIZE,
+        diseased,
+        healthy,
+        truePositive,
+        falsePositive,
+        positiveTotal
+    };
+}
+
+function shuffle(values, rng) {
+    const copy = values.slice();
+    if (window.SeededRandom) {
+        return window.SeededRandom.shuffleInPlace(copy, rng);
+    }
+    for (let i = copy.length - 1; i > 0; i -= 1) {
+        const j = Math.floor(rng() * (i + 1));
+        [copy[i], copy[j]] = [copy[j], copy[i]];
+    }
+    return copy;
+}
+
+function buildOptions(question, rng) {
+    const set = new Set([question.correctValue, question.heuristicValue, question.baseRate]);
+    const nearby = shuffle([-25, -20, -15, -10, -5, 5, 10, 15, 20, 25], rng);
+    const anchors = shuffle([2, 5, 8, 12, 15, 20, 25, 35, 45, 55, 65, 75, 85, 95], rng);
+    const candidates = [
+        ...nearby.map((offset) => clampPercent(question.correctValue + offset)),
+        clampPercent((question.correctValue + question.heuristicValue) / 2),
+        ...anchors
+    ];
 
     for (const candidate of candidates) {
         if (set.size >= 4) {
@@ -44,39 +86,59 @@ function buildOptions(correctValue, heuristicValue, rng) {
         set.add(candidate);
     }
 
-    const options = Array.from(set);
-    if (window.SeededRandom) {
-        return window.SeededRandom.shuffleInPlace(options, rng);
+    return shuffle(Array.from(set).slice(0, 4), rng);
+}
+
+function createQuestion(questionIndex, rng, usedSignatures) {
+    for (let attempt = 0; attempt < 500; attempt += 1) {
+        const baseRate = pickOne(BASE_RATE_VALUES, rng);
+        const sensitivity = pickOne(SENSITIVITY_VALUES, rng);
+        const specificity = pickOne(SPECIFICITY_VALUES, rng);
+        const signature = `${baseRate}-${sensitivity}-${specificity}`;
+        const correctValue = posterior(baseRate, sensitivity, specificity);
+        const heuristicValue = sensitivity;
+
+        if (usedSignatures.has(signature) || correctValue === heuristicValue || Math.abs(correctValue - heuristicValue) < 5) {
+            continue;
+        }
+
+        usedSignatures.add(signature);
+        const question = {
+            id: `br-${questionIndex + 1}-${signature}`,
+            baseRate,
+            sensitivity,
+            specificity,
+            correctValue,
+            heuristicValue,
+            frequency: naturalFrequency(baseRate, sensitivity, specificity)
+        };
+        question.options = buildOptions(question, rng);
+        return question;
     }
-    return options.sort((a, b) => a - b);
+
+    throw new Error("Unable to generate enough unique base-rate questions.");
 }
 
 function buildSessionQuestions() {
     const seeded = window.SeededRandom;
     sessionSeed = seeded ? seeded.createSessionSeed("base-rate") : `base-rate-${Date.now()}`;
     const rng = seeded ? seeded.createRngFromSeed(sessionSeed) : Math.random;
-    const ordered = seeded
-        ? seeded.pickShuffled(ALL_QUESTIONS, rng, ALL_QUESTIONS.length)
-        : ALL_QUESTIONS.slice();
+    const usedSignatures = new Set();
+    const generated = [];
 
-    questionOrder = ordered.map((item) => item.id);
-    sessionQuestions = ordered.map((item) => {
-        const correctValue = posterior(item.baseRate, item.sensitivity, item.specificity);
-        const heuristicValue = item.sensitivity;
-        return {
-            ...item,
-            correctValue,
-            heuristicValue,
-            options: buildOptions(correctValue, heuristicValue, rng)
-        };
-    });
+    for (let i = 0; i < QUESTION_COUNT; i += 1) {
+        generated.push(createQuestion(i, rng, usedSignatures));
+    }
+
+    questionOrder = generated.map((item) => item.id);
+    sessionQuestions = generated;
 }
 
 function updateBoard() {
     const answered = index;
     const acc = answered === 0 ? 0 : Math.round((correctCount / answered) * 100);
     const neglectRate = answered === 0 ? 0 : Math.round((neglectCount / answered) * 100);
-    const total = sessionQuestions.length || ALL_QUESTIONS.length;
+    const total = sessionQuestions.length || QUESTION_COUNT;
 
     document.getElementById("progress").textContent = `${answered}/${total}`;
     document.getElementById("accuracy").textContent = `${acc}%`;
@@ -90,6 +152,7 @@ function renderQuestion() {
         <p><strong>场景 ${index + 1}</strong></p>
         <p>某疾病患病率（基率）为 <strong>${q.baseRate}%</strong>。</p>
         <p>检测灵敏度为 <strong>${q.sensitivity}%</strong>，特异度为 <strong>${q.specificity}%</strong>。</p>
+        <p>自然频率提示：可以把它看成每 <strong>${q.frequency.population}</strong> 人中的阳性检测构成。</p>
         <p>若某人检测结果为阳性，其真实患病概率最接近以下哪项？</p>
     `;
 
@@ -104,6 +167,7 @@ function renderQuestion() {
     });
 
     feedbackEl.textContent = "";
+    trialStartTime = Date.now();
 }
 
 function answer(chosen) {
@@ -111,15 +175,45 @@ function answer(chosen) {
     const correctValue = q.correctValue;
     const heuristicValue = q.heuristicValue;
     const isCorrect = chosen === correctValue;
+    const choseSensitivityTrap = chosen === heuristicValue && !isCorrect;
+    const rtMs = Math.max(0, Date.now() - trialStartTime);
+    const explanation = `按每 ${q.frequency.population} 人估算：约 ${q.frequency.diseased} 人患病，其中 ${q.frequency.truePositive} 人阳性；约 ${q.frequency.healthy} 人未患病，其中 ${q.frequency.falsePositive} 人误报。阳性共 ${q.frequency.positiveTotal} 人，真实患病约 ${correctValue}%。`;
+
+    optionsEl.querySelectorAll("button").forEach((button) => {
+        button.disabled = true;
+    });
+
     if (isCorrect) {
         correctCount += 1;
-        feedbackEl.textContent = `正确。后验概率约为 ${correctValue}%。`;
+        feedbackEl.textContent = `正确。${explanation}`;
     } else {
-        if (chosen === heuristicValue) {
+        if (choseSensitivityTrap) {
             neglectCount += 1;
         }
-        feedbackEl.textContent = `不正确。正确值约为 ${correctValue}%（不能只看灵敏度）。`;
+        feedbackEl.textContent = `不正确。${explanation} 不能只看灵敏度 ${heuristicValue}%。`;
     }
+
+    responses.push({
+        index,
+        questionId: q.id,
+        baseRate: q.baseRate,
+        sensitivity: q.sensitivity,
+        specificity: q.specificity,
+        chosenValue: chosen,
+        correctValue,
+        heuristicValue,
+        correct: isCorrect,
+        choseSensitivityTrap,
+        rtMs,
+        options: q.options.slice(),
+        naturalFrequency: {
+            population: q.frequency.population,
+            diseased: q.frequency.diseased,
+            truePositive: q.frequency.truePositive,
+            falsePositive: q.frequency.falsePositive,
+            positiveTotal: q.frequency.positiveTotal
+        }
+    });
 
     index += 1;
     updateBoard();
@@ -136,6 +230,10 @@ function finish() {
     const total = sessionQuestions.length;
     const acc = Math.round((correctCount / total) * 100);
     const neglectRate = Math.round((neglectCount / total) * 100);
+    const finishedAt = new Date();
+    const durationMs = sessionStartedAt ? finishedAt.getTime() - sessionStartedAt.getTime() : 0;
+    const meanRtMs = Math.round(responses.reduce((sum, item) => sum + item.rtMs, 0) / Math.max(1, responses.length));
+    const optionOrder = sessionQuestions.map((item) => ({ id: item.id, options: item.options }));
 
     document.getElementById("result-acc").textContent = `${acc}%`;
     document.getElementById("result-neglect").textContent = `${neglectRate}%`;
@@ -151,18 +249,35 @@ function finish() {
 
     if (window.TrainingResults) {
         window.TrainingResults.saveSession({
+            moduleId: "base-rate",
             gameId: "base-rate",
             gameName: "基率忽略任务",
-            startedAt: sessionStartedAt || new Date(),
-            finishedAt: new Date(),
+            startedAt: sessionStartedAt || finishedAt,
+            finishedAt,
+            durationMs,
+            score: acc,
+            summary: {
+                totalTrials: total,
+                correctCount,
+                accuracy: correctCount / total,
+                neglectCount,
+                neglectRate: neglectCount / total,
+                meanRtMs,
+                contentVersion: CONTENT_VERSION,
+                sessionSeed,
+                questionOrder: questionOrder.slice(),
+                optionOrder
+            },
+            trials: responses.map((item) => ({ ...item })),
             metrics: {
                 accuracy: acc,
                 neglectRate,
                 seed: sessionSeed,
                 contentVersion: CONTENT_VERSION,
                 questionOrder,
-                optionOrder: sessionQuestions.map((item) => ({ id: item.id, options: item.options }))
-            }
+                optionOrder
+            },
+            tags: ["probability", "base-rate", "bayesian"]
         });
     }
 
@@ -174,6 +289,7 @@ function startGame() {
     index = 0;
     correctCount = 0;
     neglectCount = 0;
+    responses = [];
     sessionStartedAt = new Date();
     buildSessionQuestions();
     startScreen.style.display = "none";

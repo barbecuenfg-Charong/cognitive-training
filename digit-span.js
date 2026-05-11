@@ -18,6 +18,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const roundIndicator = document.getElementById('round-indicator');
     const speedSelect = document.getElementById('speed-select');
     const modeRadios = document.getElementsByName('mode');
+    const GAME_ID = 'digit-span';
+    const GAME_NAME = '数字广度 (Digit Span)';
 
     // Game State
     let state = {
@@ -31,6 +33,10 @@ document.addEventListener('DOMContentLoaded', () => {
         mode: 'forward',
         speed: 1000
     };
+    let sessionStartedAt = null;
+    let trialStartedAt = 0;
+    let trialLog = [];
+    let sessionSaved = false;
 
     // Global functions for HTML onclick access
     window.inputDigit = function(digit) {
@@ -99,6 +105,10 @@ document.addEventListener('DOMContentLoaded', () => {
         state.score = 0;
         state.sequence = [];
         state.userInput = [];
+        sessionStartedAt = new Date();
+        trialStartedAt = 0;
+        trialLog = [];
+        sessionSaved = false;
 
         // UI Updates
         startBtn.style.display = 'none';
@@ -131,6 +141,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function gameOver() {
         state.isPlaying = false;
+        const finishedAt = new Date();
+        const durationMs = sessionStartedAt
+            ? Math.max(0, finishedAt.getTime() - sessionStartedAt.getTime())
+            : 0;
         startBtn.style.display = 'inline-block';
         stopBtn.style.display = 'none';
         
@@ -149,7 +163,53 @@ document.addEventListener('DOMContentLoaded', () => {
         else rating = '继续加油！多加练习可以提升记忆力。';
         
         performanceRatingEl.textContent = rating;
+        saveTrainingResult(finishedAt, durationMs);
         resultModal.classList.remove('hidden');
+    }
+
+    function saveTrainingResult(finishedAt, durationMs) {
+        if (sessionSaved) return;
+        sessionSaved = true;
+
+        if (!window.TrainingResults || typeof window.TrainingResults.saveSession !== 'function' || !sessionStartedAt) {
+            return;
+        }
+
+        const totalTrials = trialLog.length;
+        const correctCount = trialLog.filter(trial => trial.correct).length;
+        const accuracy = totalTrials > 0 ? correctCount / totalTrials : 0;
+
+        window.TrainingResults.saveSession({
+            moduleId: GAME_ID,
+            gameId: GAME_ID,
+            gameName: GAME_NAME,
+            startedAt: sessionStartedAt,
+            finishedAt,
+            durationMs,
+            score: state.score,
+            summary: {
+                mode: state.mode,
+                maxSpan: state.maxSpan,
+                currentSpan: state.currentSpan,
+                totalTrials,
+                correctCount,
+                accuracy,
+                score: state.score,
+                speed: state.speed
+            },
+            trials: trialLog.map(trial => ({
+                ...trial,
+                sequence: [...trial.sequence],
+                userInput: [...trial.userInput]
+            })),
+            metrics: {
+                maxSpan: state.maxSpan,
+                accuracy: `${Math.round(accuracy * 100)}%`,
+                score: state.score,
+                speed: `${state.speed}ms`
+            },
+            tags: ['memory', 'digit-span']
+        });
     }
 
     function generateSequence(length) {
@@ -235,6 +295,7 @@ document.addEventListener('DOMContentLoaded', () => {
         inputArea.style.display = 'flex';
         instructionText.style.display = 'block';
         instructionText.textContent = state.mode === 'forward' ? '请输入数字 (顺序)' : '请输入数字 (倒序)';
+        trialStartedAt = Date.now();
         
         // Highlight active input
         userInputDisplay.classList.add('active');
@@ -257,7 +318,24 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         }
 
+        recordTrial(isCorrect);
         showFeedback(isCorrect);
+    }
+
+    function recordTrial(isCorrect) {
+        const now = Date.now();
+        const startedMs = sessionStartedAt ? sessionStartedAt.getTime() : now;
+        trialLog.push({
+            index: trialLog.length,
+            span: state.currentSpan,
+            attempt: state.trials + 1,
+            mode: state.mode,
+            sequence: [...state.sequence],
+            userInput: [...state.userInput],
+            correct: isCorrect,
+            rtMs: trialStartedAt ? Math.max(0, now - trialStartedAt) : 0,
+            elapsedMs: Math.max(0, now - startedMs)
+        });
     }
 
     function showFeedback(isCorrect) {

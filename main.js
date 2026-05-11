@@ -6,8 +6,9 @@ function createWindow() {
     width: 1200,
     height: 800,
     webPreferences: {
-      nodeIntegration: true,
-      contextIsolation: false // For simple HTML/JS apps without a preload script, this is easier, though less secure. Since this is a local app, it's acceptable.
+      nodeIntegration: false,
+      contextIsolation: true,
+      preload: path.join(__dirname, 'preload.js')
     },
     icon: path.join(__dirname, 'icon.png') // Optional: add an icon if available, but for now we'll skip or use default
   });

@@ -1,4 +1,6 @@
 document.addEventListener('DOMContentLoaded', () => {
+    const GAME_ID = "nback";
+    const GAME_NAME = "N-Back 记忆训练";
     const startBtn = document.getElementById('start-btn');
     const nLevelInput = document.getElementById('n-level');
     const speedInput = document.getElementById('speed');
@@ -27,6 +29,8 @@ document.addEventListener('DOMContentLoaded', () => {
     let speed = 2000;
     let hasResponded = false;
     let charType = 'letters';
+    let sessionStartedAt = null;
+    let sessionSaved = false;
 
     // Characters to use
     const letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
@@ -82,6 +86,8 @@ document.addEventListener('DOMContentLoaded', () => {
         wrongMatches = 0;
         missedMatches = 0;
         isPlaying = true;
+        sessionStartedAt = new Date();
+        sessionSaved = false;
         
         scoreDisplay.textContent = "0";
         roundDisplay.textContent = `0/${totalRounds}`;
@@ -161,10 +167,17 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         
         history.push({
+            trialIndex: currentIndex,
+            stimulus: char,
             char: char,
             isTarget: isTarget,
+            response: 'none',
             userAction: 'none',
-            result: 'neutral'
+            correct: null,
+            result: 'neutral',
+            rtMs: null,
+            elapsedMs: null,
+            startedAtMs: roundStartTime
         });
         
         display.textContent = char;
@@ -181,13 +194,16 @@ document.addEventListener('DOMContentLoaded', () => {
             // If it was NOT a target, and user did NOTHING, then it is CORRECT rejection (neutral/correct).
             
             const currentRound = history[currentIndex];
+            currentRound.elapsedMs = Math.max(0, Date.now() - currentRound.startedAtMs);
             if (currentRound.userAction === 'none') {
                 if (currentRound.isTarget) {
                     missedMatches++;
                     currentRound.result = 'missed';
+                    currentRound.correct = false;
                     showFeedback("漏选!", "wrong");
                 } else {
                     currentRound.result = 'neutral'; // Correct rejection
+                    currentRound.correct = true;
                 }
             }
             
@@ -205,12 +221,17 @@ document.addEventListener('DOMContentLoaded', () => {
 
         hasResponded = true;
         const currentRound = history[currentIndex];
+        if (!currentRound) return;
         currentRound.userAction = 'match';
+        currentRound.response = 'match';
+        currentRound.rtMs = Math.max(0, Date.now() - roundStartTime);
+        currentRound.elapsedMs = currentRound.rtMs;
         
         if (sequence.length <= n) {
             // Impossible to match yet
             wrongMatches++;
             currentRound.result = 'wrong';
+            currentRound.correct = false;
             showFeedback("错误 (过早)", "wrong");
             return;
         }
@@ -219,6 +240,7 @@ document.addEventListener('DOMContentLoaded', () => {
             score += 10;
             correctMatches++;
             currentRound.result = 'correct';
+            currentRound.correct = true;
             showFeedback("正确!", "correct");
             scoreDisplay.textContent = score;
             
@@ -229,6 +251,7 @@ document.addEventListener('DOMContentLoaded', () => {
             score -= 5;
             wrongMatches++;
             currentRound.result = 'wrong';
+            currentRound.correct = false;
             showFeedback("错误!", "wrong");
             scoreDisplay.textContent = score;
         }
@@ -248,6 +271,9 @@ document.addEventListener('DOMContentLoaded', () => {
     function endGame() {
         isPlaying = false;
         clearTimeout(timer);
+        const finishedAt = new Date();
+        const startedAt = sessionStartedAt || finishedAt;
+        const durationMs = Math.max(0, finishedAt.getTime() - startedAt.getTime());
         
         const totalPossible = correctMatches + missedMatches;
         // Avoid division by zero
@@ -257,6 +283,7 @@ document.addEventListener('DOMContentLoaded', () => {
             
         finalScoreDisplay.textContent = score;
         finalAccuracyDisplay.textContent = `${accuracy}% (正确: ${correctMatches}, 错误: ${wrongMatches}, 漏选: ${missedMatches})`;
+        saveTrainingResult(finishedAt, durationMs, accuracy);
         
         // Render history list
         const historyList = document.getElementById('history-list');
@@ -310,6 +337,54 @@ document.addEventListener('DOMContentLoaded', () => {
         
         resultModal.classList.remove('hidden');
         resetUI();
+    }
+
+    function saveTrainingResult(finishedAt, durationMs, accuracyPercent) {
+        if (sessionSaved) return;
+        sessionSaved = true;
+
+        if (!window.TrainingResults || typeof window.TrainingResults.saveSession !== 'function') {
+            return;
+        }
+
+        const responseTimes = history
+            .map(item => item.rtMs)
+            .filter(value => Number.isFinite(value));
+        const meanRtMs = responseTimes.length > 0
+            ? Math.round(responseTimes.reduce((sum, value) => sum + value, 0) / responseTimes.length)
+            : null;
+        const trials = history.map((item, index) => ({
+            trialIndex: item.trialIndex ?? index,
+            stimulus: item.stimulus || item.char,
+            char: item.char,
+            isTarget: item.isTarget,
+            response: item.response,
+            userAction: item.userAction,
+            correct: item.correct,
+            result: item.result,
+            rtMs: item.rtMs,
+            elapsedMs: item.elapsedMs
+        }));
+
+        window.TrainingResults.saveSession({
+            moduleId: GAME_ID,
+            gameId: GAME_ID,
+            gameName: GAME_NAME,
+            startedAt: sessionStartedAt || finishedAt,
+            finishedAt,
+            durationMs,
+            score,
+            summary: {
+                nLevel: n,
+                totalTrials: totalRounds,
+                correctMatches,
+                wrongMatches,
+                missedMatches,
+                accuracy: accuracyPercent / 100,
+                meanRtMs
+            },
+            trials
+        });
     }
 
     function resetUI() {

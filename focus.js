@@ -26,6 +26,11 @@ document.addEventListener('DOMContentLoaded', () => {
     let isPlaying = false;
     let isAdvancedMode = false;
     let totalNumbers = 100;
+    let sessionStartedAt = null;
+    let sessionSaved = false;
+    let trials = [];
+    let targetPresentedAt = 0;
+    let lastResponseAt = 0;
 
     startBtn.addEventListener('click', startGame);
     restartBtn.addEventListener('click', () => {
@@ -61,8 +66,14 @@ document.addEventListener('DOMContentLoaded', () => {
             setTimeout(() => {
                 try {
                     generateShatteredLayout();
+                    const now = Date.now();
+                    sessionStartedAt = new Date(now);
+                    sessionSaved = false;
+                    trials = [];
+                    startTime = now;
+                    targetPresentedAt = now;
+                    lastResponseAt = now;
                     isPlaying = true;
-                    startTime = Date.now();
                     timerInterval = setInterval(updateTimer, 1000);
                     overlay.classList.add('hidden');
                     startBtn.disabled = true;
@@ -87,6 +98,11 @@ document.addEventListener('DOMContentLoaded', () => {
         if (timerInterval) clearInterval(timerInterval);
         svg.selectAll("*").remove(); // Clear SVG
         isPlaying = false;
+        sessionStartedAt = null;
+        sessionSaved = false;
+        trials = [];
+        targetPresentedAt = 0;
+        lastResponseAt = 0;
         startBtn.disabled = false;
         startBtn.textContent = "开始测试";
         totalNumbersInput.disabled = false;
@@ -105,8 +121,6 @@ document.addEventListener('DOMContentLoaded', () => {
         const rect = gameArea.getBoundingClientRect();
         const width = rect.width;
         const height = rect.height;
-
-        console.log(`Game Area Dimensions: ${width}x${height}`);
 
         if (width <= 0 || height <= 0) {
             throw new Error(`Game area dimensions are invalid: ${width}x${height}`);
@@ -240,8 +254,6 @@ document.addEventListener('DOMContentLoaded', () => {
         // But user wants 1-100.
         // This usually happens if area is too small.
         // With 100 numbers on a screen, it should be fine.
-        
-        console.log(`Generated ${polygons.length} polygons. Required: ${totalNumbers}`);
         
         // IMPORTANT: If polygons.length < totalNumbers, we are missing numbers.
         // We should at least log it or alert.
@@ -732,18 +744,51 @@ document.addEventListener('DOMContentLoaded', () => {
         return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
     }
 
+    function getModeId() {
+        return isAdvancedMode ? 'advanced' : 'simple';
+    }
+
+    function mean(values) {
+        if (!values.length) return 0;
+        return Math.round(values.reduce((sum, value) => sum + value, 0) / values.length);
+    }
+
+    function recordTrial(targetNumber, responseNumber, correct, respondedAt) {
+        const responseBaseline = lastResponseAt || targetPresentedAt || startTime || respondedAt;
+        const targetBaseline = targetPresentedAt || startTime || respondedAt;
+
+        trials.push({
+            index: trials.length,
+            stimulus: {
+                type: 'number-cell',
+                targetNumber,
+                totalNumbers,
+                mode: getModeId()
+            },
+            target: targetNumber,
+            response: responseNumber,
+            correct,
+            rtMs: Math.max(0, Math.round(respondedAt - responseBaseline)),
+            targetElapsedMs: Math.max(0, Math.round(respondedAt - targetBaseline)),
+            elapsedMs: Math.max(0, Math.round(respondedAt - (startTime || respondedAt)))
+        });
+
+        lastResponseAt = respondedAt;
+    }
+
     function handleCellClick(num, pathSelection, textSelection) {
         // Ensure numeric types
         const clickNum = Number(num);
         const currentTgt = Number(currentTarget);
         const total = Number(totalNumbers);
 
-        console.log(`Click Event: clicked=${clickNum}, target=${currentTgt}, total=${total}, isPlaying=${isPlaying}`);
-
         if (!isPlaying) return;
 
-        if (clickNum === currentTgt) {
-            console.log("Correct click!");
+        const respondedAt = Date.now();
+        const isCorrect = clickNum === currentTgt;
+        recordTrial(currentTgt, clickNum, isCorrect, respondedAt);
+
+        if (isCorrect) {
             // Correct
             if (!isAdvancedMode) {
                 // Simple Mode: Gray out background and text
@@ -776,8 +821,6 @@ document.addEventListener('DOMContentLoaded', () => {
                     .attr("fill", "#f9f9f9");
                 
                 // 2. Set CURRENT found elements to Gray (Background + Text)
-                console.log(`Advanced Mode: Setting number ${clickNum} to gray style.`);
-                
                 textSelection
                     .classed("latest-found", true)
                     .transition().duration(200)
@@ -794,6 +837,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 endGame();
             } else {
                 currentTarget++;
+                targetPresentedAt = respondedAt;
                 targetDisplay.textContent = currentTarget;
             }
         } else {
@@ -808,12 +852,65 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
+    function saveTrainingSession({ finishedAt, durationMs, timeStr, grade, equivalentMinutes, scaleFactor }) {
+        if (sessionSaved || !window.TrainingResults || typeof window.TrainingResults.saveSession !== 'function') {
+            return;
+        }
+
+        sessionSaved = true;
+
+        const totalTrials = trials.length;
+        const correctTrials = trials.filter(trial => trial.correct);
+        const correctCount = correctTrials.length;
+        const errorCount = totalTrials - correctCount;
+        const accuracy = totalTrials > 0 ? correctCount / totalTrials : 0;
+        const meanRtMs = mean(trials.map(trial => trial.rtMs).filter(Number.isFinite));
+        const meanCorrectTargetMs = mean(correctTrials.map(trial => trial.targetElapsedMs).filter(Number.isFinite));
+        const numbersPerMinute = durationMs > 0 ? Number((correctCount / (durationMs / 60000)).toFixed(2)) : 0;
+
+        window.TrainingResults.saveSession({
+            moduleId: 'focus',
+            gameId: 'focus',
+            gameName: '注意力集中训练',
+            startedAt: sessionStartedAt || new Date(finishedAt.getTime() - durationMs),
+            finishedAt,
+            durationMs,
+            score: Math.round(accuracy * 100),
+            summary: {
+                totalTrials,
+                correctCount,
+                accuracy,
+                meanRtMs,
+                errorCount,
+                totalNumbers,
+                mode: getModeId(),
+                durationMs,
+                elapsedSeconds: Math.round(durationMs / 1000),
+                grade,
+                equivalentMinutes: Number(equivalentMinutes.toFixed(2)),
+                scaleFactor: Number(scaleFactor.toFixed(4)),
+                meanCorrectTargetMs,
+                numbersPerMinute
+            },
+            trials: trials.map(trial => ({ ...trial })),
+            metrics: {
+                accuracy: `${Math.round(accuracy * 100)}%`,
+                meanRT: `${meanRtMs}ms`,
+                duration: timeStr,
+                grade,
+                mode: isAdvancedMode ? '高级版' : '简单版'
+            },
+            tags: ['attention', 'focus']
+        });
+    }
+
     function endGame() {
-        console.log("endGame called");
         isPlaying = false;
         clearInterval(timerInterval);
         
-        const elapsedSeconds = Math.floor((Date.now() - startTime) / 1000);
+        const finishedAt = new Date();
+        const durationMs = Math.max(0, finishedAt.getTime() - startTime);
+        const elapsedSeconds = Math.floor(durationMs / 1000);
         const minutes = Math.floor(elapsedSeconds / 60);
         const seconds = elapsedSeconds % 60;
         const timeStr = `${minutes}分${seconds}秒`;
@@ -841,11 +938,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
         finalTimeDisplay.textContent = timeStr;
         finalGradeDisplay.textContent = grade;
+        saveTrainingSession({ finishedAt, durationMs, timeStr, grade, equivalentMinutes, scaleFactor });
         
         // Ensure modal exists and remove hidden class
         if (resultModal) {
             resultModal.classList.remove('hidden');
-            console.log("Modal class list:", resultModal.classList);
         } else {
             console.error("resultModal not found!");
             alert(`挑战成功！\n用时: ${timeStr}\n评级: ${grade}`);

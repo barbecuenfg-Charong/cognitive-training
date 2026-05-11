@@ -38,6 +38,7 @@ function main() {
     if (blockingFiles.length > 0) {
         console.log("Blocking files:");
         console.log(blockingFiles.join("\n"));
+        process.exitCode = 1;
     }
 }
 

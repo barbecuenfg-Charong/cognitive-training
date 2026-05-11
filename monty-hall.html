@@ -70,9 +70,10 @@
             <a href="index.html" class="back-btn"><span aria-hidden="true">←</span><span>返回主页</span></a>
             <h1>蒙提霍尔问题</h1>
             <div class="score-board">
+                <span><i class="fas fa-trophy"></i> 获胜率: <span id="win-rate">0%</span></span>
                 <span><i class="fas fa-random"></i> 切换胜率: <span id="switch-rate">0%</span></span>
                 <span><i class="fas fa-lock"></i> 坚持胜率: <span id="stay-rate">0%</span></span>
-                <span><i class="fas fa-list-ol"></i> 回合: <span id="round-count">0</span></span>
+                <span><i class="fas fa-list-ol"></i> 回合: <span id="round-count">0/12</span></span>
             </div>
         </header>
 
@@ -80,16 +81,17 @@
             <div class="instruction-overlay" id="start-screen">
                 <div class="instruction-content">
                     <h2><i class="fas fa-door-open"></i> 条件概率经典题</h2>
-                    <p>你先选门，主持人会打开一扇确定是羊的门。此时你可以坚持原选择或改选另一扇未开的门。</p>
+                    <p>完成 12 轮固定样例。你先选门，主持人会打开一扇确定是羊的门。此时你可以坚持原选择或改选另一扇未开的门。</p>
                     <div class="rule-box">
                         <h3>规则</h3>
                         <ul>
                             <li>3 扇门中仅 1 扇有汽车，另外 2 扇是山羊。</li>
                             <li>主持人永远不会打开有汽车的门，也不会打开你已选的门。</li>
                             <li>第二步你可以选择 <strong>切换</strong> 或 <strong>坚持</strong>。</li>
+                            <li>完成第 12 轮后生成一次训练记录。</li>
                         </ul>
                     </div>
-                    <button class="start-btn" onclick="startGame()">开始体验</button>
+                    <button class="start-btn" onclick="startGame()">开始训练</button>
                 </div>
             </div>
 
@@ -102,9 +104,41 @@
                     <button class="btn" id="next-btn" style="display:none;">下一回合</button>
                 </div>
             </div>
+
+            <div class="modal-overlay" id="result-modal">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h2><i class="fas fa-flag-checkered"></i> 完成</h2>
+                    </div>
+                    <div class="modal-body">
+                        <div class="result-stat">
+                            <span class="stat-label">总获胜</span>
+                            <span class="stat-value highlight" id="result-win">0/12（0%）</span>
+                        </div>
+                        <div class="result-stat">
+                            <span class="stat-label">切换胜率</span>
+                            <span class="stat-value" id="result-switch">0/0（0%）</span>
+                        </div>
+                        <div class="result-stat">
+                            <span class="stat-label">坚持胜率</span>
+                            <span class="stat-value" id="result-stay">0/0（0%）</span>
+                        </div>
+                        <div class="result-stat">
+                            <span class="stat-label">策略分布</span>
+                            <span class="stat-value" id="result-strategy">切换 0 / 坚持 0</span>
+                        </div>
+                        <p class="feedback-text" id="result-text"></p>
+                    </div>
+                    <div class="modal-footer">
+                        <button class="btn-primary" onclick="location.reload()">再试一次</button>
+                        <a href="index.html" class="btn-secondary">返回主页</a>
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
 
+    <script src="src/shared/seeded-random.js"></script>
     <script src="src/shared/training-results.js"></script>
     <script src="monty-hall.js"></script>
 </body>

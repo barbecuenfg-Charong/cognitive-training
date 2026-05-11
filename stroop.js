@@ -9,6 +9,9 @@ document.addEventListener('DOMContentLoaded', () => {
     const volumeBar = document.getElementById('volume-bar');
     const transcriptDisplay = document.getElementById('transcript-display');
     const modeRadios = document.querySelectorAll('input[name="play-mode"]');
+
+    const GAME_ID = "stroop";
+    const GAME_NAME = "斯特鲁普测试";
     
     let startTime = 0;
     let timerInterval = null;
@@ -19,6 +22,11 @@ document.addEventListener('DOMContentLoaded', () => {
     let gridData = []; // To store cell data { char, colorName, element }
     let audioContext = null;
     let mediaStream = null;
+    let sessionStartedAt = null;
+    let sessionInputMode = "manual";
+    let sessionSaved = false;
+    let sessionTrials = [];
+    let currentTrialStartedAt = 0;
     
     // Characters: "红橙黄绿青蓝紫"
     const chars = ['红', '橙', '黄', '绿', '青', '蓝', '紫'];
@@ -37,6 +45,133 @@ document.addEventListener('DOMContentLoaded', () => {
         { name: '蓝', hex: '#3498db' },
         { name: '紫', hex: '#9b59b6' }
     ];
+
+    function average(values) {
+        if (!values.length) return null;
+        return Math.round(values.reduce((sum, value) => sum + value, 0) / values.length);
+    }
+
+    function ratio(correctCount, totalCount) {
+        return totalCount > 0 ? correctCount / totalCount : null;
+    }
+
+    function createSessionTrials(inputMode) {
+        return gridData.map((item, index) => ({
+            index,
+            word: item.wordMeaning,
+            wordMeaning: item.wordMeaning,
+            color: item.colorName,
+            colorName: item.colorName,
+            condition: item.condition,
+            congruency: item.congruency,
+            inputMode,
+            response: null,
+            correct: null,
+            rtMs: null,
+            attemptCount: 0,
+            wrongResponses: []
+        }));
+    }
+
+    function markCurrentTrialStart(index) {
+        currentTrialStartedAt = Date.now();
+        if (sessionTrials[index]) {
+            sessionTrials[index].startedAt = new Date(currentTrialStartedAt).toISOString();
+        }
+    }
+
+    function recordVoiceResponse(response, correct) {
+        const trial = sessionTrials[currentIndex];
+        if (!trial) return;
+
+        const rtMs = currentTrialStartedAt > 0 ? Date.now() - currentTrialStartedAt : null;
+        trial.attemptCount += 1;
+        trial.response = response;
+        trial.correct = correct;
+        trial.rtMs = Number.isFinite(rtMs) ? rtMs : null;
+
+        if (correct) {
+            trial.finishedAt = new Date().toISOString();
+            return;
+        }
+
+        trial.wrongResponses.push({
+            response,
+            rtMs: trial.rtMs
+        });
+    }
+
+    function calculateSessionSummary() {
+        const trials = sessionTrials.length ? sessionTrials : createSessionTrials(sessionInputMode);
+        const totalTrials = trials.length;
+        const completedTrials = trials.filter(trial => trial.correct !== null);
+        const correctTrials = trials.filter(trial => trial.correct === true);
+        const rtSamples = completedTrials
+            .map(trial => trial.rtMs)
+            .filter(value => Number.isFinite(value));
+        const congruentTrials = trials.filter(trial => trial.congruency === "congruent");
+        const incongruentTrials = trials.filter(trial => trial.congruency === "incongruent");
+        const hasMeasuredResponses = completedTrials.length > 0;
+
+        return {
+            totalTrials,
+            completedTrials: completedTrials.length,
+            correctCount: correctTrials.length,
+            accuracy: hasMeasuredResponses ? ratio(correctTrials.length, totalTrials) : null,
+            meanRtMs: average(rtSamples),
+            congruentAccuracy: hasMeasuredResponses
+                ? ratio(congruentTrials.filter(trial => trial.correct === true).length, congruentTrials.length)
+                : null,
+            incongruentAccuracy: hasMeasuredResponses
+                ? ratio(incongruentTrials.filter(trial => trial.correct === true).length, incongruentTrials.length)
+                : null,
+            inputMode: sessionInputMode,
+            gridSize: parseInt(gridSizeInput.value, 10) || null,
+            completed: completedTrials.length === totalTrials
+        };
+    }
+
+    function saveTrainingSession(endReason) {
+        if (sessionSaved || !sessionStartedAt) return;
+        sessionSaved = true;
+
+        const finishedAt = new Date();
+        const durationMs = finishedAt.getTime() - sessionStartedAt.getTime();
+        const summary = calculateSessionSummary();
+        const score = Number.isFinite(summary.accuracy) ? Math.round(summary.accuracy * 100) : null;
+        const trials = (sessionTrials.length ? sessionTrials : createSessionTrials(sessionInputMode))
+            .map(trial => ({
+                ...trial,
+                wrongResponses: trial.wrongResponses.slice()
+            }));
+
+        if (window.TrainingResults && typeof window.TrainingResults.saveSession === "function") {
+            try {
+                window.TrainingResults.saveSession({
+                    moduleId: GAME_ID,
+                    gameId: GAME_ID,
+                    gameName: GAME_NAME,
+                    startedAt: sessionStartedAt,
+                    finishedAt,
+                    durationMs,
+                    score,
+                    summary,
+                    trials,
+                    metrics: {
+                        accuracy: Number.isFinite(summary.accuracy)
+                            ? `${Math.round(summary.accuracy * 100)}%`
+                            : "--",
+                        meanRT: Number.isFinite(summary.meanRtMs) ? `${summary.meanRtMs}ms` : "--",
+                        inputMode: sessionInputMode,
+                        endReason
+                    },
+                    tags: ["attention", "stroop"]
+                });
+            } catch (error) {
+                console.error("Failed to save Stroop training result", error);
+            }
+        }
+    }
 
     function renderTranscript(displayFinal, displayInterim) {
         if (!transcriptDisplay) return;
@@ -63,8 +198,7 @@ document.addEventListener('DOMContentLoaded', () => {
         link.addEventListener("click", (event) => {
             event.preventDefault();
             try {
-                const { shell } = require("electron");
-                shell.openPath(window.location.href);
+                window.electronShell.openPath(window.location.href);
             } catch (_error) {
                 alert("无法打开浏览器，请手动复制文件路径到 Chrome/Edge 中打开。");
             }
@@ -136,6 +270,10 @@ document.addEventListener('DOMContentLoaded', () => {
         
         // Reset state
         currentIndex = 0;
+        sessionInputMode = isVoiceMode ? "voice" : "manual";
+        sessionSaved = false;
+        sessionTrials = createSessionTrials(sessionInputMode);
+        currentTrialStartedAt = 0;
         
         // Reset visual state of cells
         gridData.forEach(d => {
@@ -143,6 +281,7 @@ document.addEventListener('DOMContentLoaded', () => {
         });
 
         startTimer();
+        sessionStartedAt = new Date(startTime);
         startBtn.style.display = 'none';
         stopBtn.style.display = 'inline-block';
         isPlaying = true;
@@ -156,11 +295,17 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    function stopGame() {
+    function stopGame(endReason = "stopped") {
+        const shouldSaveSession = isPlaying && sessionStartedAt && !sessionSaved;
+
         stopTimer();
         startBtn.style.display = 'inline-block';
         stopBtn.style.display = 'none';
         isPlaying = false;
+
+        if (shouldSaveSession) {
+            saveTrainingSession(endReason);
+        }
         
         stopAudioContext();
         
@@ -228,7 +373,10 @@ document.addEventListener('DOMContentLoaded', () => {
             // Store data for logic
             gridData.push({
                 element: cell,
-                colorName: colorObj.name // This is the CORRECT answer
+                wordMeaning: charText,
+                colorName: colorObj.name, // This is the CORRECT answer
+                condition: charText === colorObj.name ? "congruent" : "incongruent",
+                congruency: charText === colorObj.name ? "congruent" : "incongruent"
             });
         }
     }
@@ -314,8 +462,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     link.addEventListener("click", (e) => {
                         e.preventDefault();
                         try {
-                            const { shell } = require("electron");
-                            shell.openPath(window.location.href);
+                            window.electronShell.openPath(window.location.href);
                         } catch (_err) {
                             // ignore
                         }
@@ -358,13 +505,14 @@ document.addEventListener('DOMContentLoaded', () => {
         if (index < gridData.length) {
             const current = gridData[index];
             current.element.classList.add('active');
+            markCurrentTrialStart(index);
             // Scroll into view if needed
             current.element.scrollIntoView({ behavior: 'smooth', block: 'center' });
         } else {
             // Finished!
             voiceStatus.textContent = "挑战完成！";
             voiceStatus.className = "voice-status matched";
-            stopGame();
+            stopGame("completed");
             alert(`恭喜！完成时间：${timerDisplay.textContent}`);
         }
     }
@@ -393,6 +541,8 @@ document.addEventListener('DOMContentLoaded', () => {
             // But since our target names are single chars, includes() is usually enough.
             // Be careful of homophones or similar sounds, but Web Speech is usually context aware.
         }
+
+        recordVoiceResponse(cleanText, matched);
 
         const statusEl = voiceStatus;
         

@@ -54,6 +54,43 @@
             overflow-x: auto;
         }
 
+        .report-table {
+            table-layout: fixed;
+        }
+
+        .report-table col.time-col {
+            width: 18%;
+        }
+
+        .report-table col.game-col {
+            width: 28%;
+        }
+
+        .report-table col.duration-col {
+            width: 16%;
+        }
+
+        .report-table col.metrics-col {
+            width: 38%;
+        }
+
+        .session-name {
+            font-weight: 600;
+        }
+
+        .session-meta {
+            color: #7f8c8d;
+            font-size: 0.78rem;
+            line-height: 1.3;
+            margin-top: 2px;
+            overflow-wrap: anywhere;
+        }
+
+        .metrics-cell {
+            overflow-wrap: anywhere;
+            white-space: normal;
+        }
+
         #empty-hint {
             color: #7f8c8d;
             margin-top: 10px;
@@ -98,7 +135,13 @@
             </div>
 
             <div class="report-table-wrap">
-                <table>
+                <table class="report-table">
+                    <colgroup>
+                        <col class="time-col">
+                        <col class="game-col">
+                        <col class="duration-col">
+                        <col class="metrics-col">
+                    </colgroup>
                     <thead>
                         <tr>
                             <th>时间</th>

@@ -26,8 +26,11 @@ document.addEventListener("DOMContentLoaded", () => {
     let score = 0;
     let missCount = 0;
     let currentDirection = null;
+    let currentStimulus = null;
+    let sessionStartedAt = null;
     let stimulusStartTime = 0;
     let reactionTimes = [];
+    let trialLog = [];
     let trialTimeout = null;
     let nextRoundTimeout = null;
 
@@ -82,6 +85,83 @@ document.addEventListener("DOMContentLoaded", () => {
         feedback.className = type ? `feedback ${type}` : "feedback";
     }
 
+    function average(values) {
+        const validValues = values.filter((value) => Number.isFinite(value));
+        if (validValues.length === 0) return 0;
+        return Math.round(validValues.reduce((sum, value) => sum + value, 0) / validValues.length);
+    }
+
+    function accuracyFor(items) {
+        if (items.length === 0) return 0;
+        return items.filter((item) => item.correct).length / items.length;
+    }
+
+    function recordTrial(response, correct, rtMs) {
+        if (!currentStimulus) return;
+
+        trialLog.push({
+            trialIndex: currentStimulus.trialIndex,
+            condition: currentStimulus.condition,
+            congruency: currentStimulus.congruency,
+            stimulus: currentStimulus.text,
+            targetDirection: currentStimulus.direction,
+            response,
+            correct,
+            rtMs
+        });
+    }
+
+    function buildSummary() {
+        const completedTrials = trialLog.length;
+        const correctCount = trialLog.filter((trial) => trial.correct).length;
+        const congruentTrials = trialLog.filter((trial) => trial.congruency === "congruent");
+        const incongruentTrials = trialLog.filter((trial) => trial.congruency === "incongruent");
+        const congruentCorrectRt = congruentTrials
+            .filter((trial) => trial.correct)
+            .map((trial) => trial.rtMs);
+        const incongruentCorrectRt = incongruentTrials
+            .filter((trial) => trial.correct)
+            .map((trial) => trial.rtMs);
+        const congruentMeanRt = average(congruentCorrectRt);
+        const incongruentMeanRt = average(incongruentCorrectRt);
+
+        return {
+            totalTrials: completedTrials,
+            plannedTrials: totalTrials,
+            correctCount,
+            accuracy: completedTrials > 0 ? correctCount / completedTrials : 0,
+            meanRtMs: average(trialLog.map((trial) => trial.rtMs)),
+            congruentAccuracy: accuracyFor(congruentTrials),
+            incongruentAccuracy: accuracyFor(incongruentTrials),
+            congruencyEffectMs: congruentMeanRt > 0 && incongruentMeanRt > 0
+                ? incongruentMeanRt - congruentMeanRt
+                : 0
+        };
+    }
+
+    function saveTrainingResult(finishedAt) {
+        if (!window.TrainingResults || !sessionStartedAt) return;
+
+        const summary = buildSummary();
+        window.TrainingResults.saveSession({
+            moduleId: "flanker",
+            gameId: "flanker",
+            gameName: "Flanker 专注力训练",
+            startedAt: sessionStartedAt,
+            finishedAt,
+            durationMs: Math.max(0, finishedAt.getTime() - sessionStartedAt.getTime()),
+            score,
+            summary,
+            trials: trialLog.map((trial) => ({ ...trial })),
+            metrics: {
+                accuracy: `${Math.round(summary.accuracy * 100)}%`,
+                meanRt: `${summary.meanRtMs}ms`,
+                congruencyEffect: `${summary.congruencyEffectMs}ms`
+            },
+            tags: ["attention", "flanker"]
+        });
+    }
+
     function startGame() {
         if (isPlaying) return;
 
@@ -92,6 +172,9 @@ document.addEventListener("DOMContentLoaded", () => {
         missCount = 0;
         reactionTimes = [];
         currentDirection = null;
+        currentStimulus = null;
+        sessionStartedAt = new Date();
+        trialLog = [];
         isPlaying = true;
         isPaused = false;
         roundOpen = false;
@@ -107,22 +190,33 @@ document.addEventListener("DOMContentLoaded", () => {
         nextRoundTimeout = setTimeout(nextRound, 300);
     }
 
-    function buildStimulus() {
+    function buildStimulus(trialIndex) {
         const direction = Math.random() < 0.5 ? "left" : "right";
         const isCongruent = Math.random() < 0.6;
+        const congruency = isCongruent ? "congruent" : "incongruent";
         const centerChar = direction === "left" ? "<" : ">";
         const flankChar = isCongruent ? centerChar : (direction === "left" ? ">" : "<");
         const count = 5;
         const centerIndex = Math.floor(Math.random() * count);
-        const chars = [];
+        const htmlChars = [];
+        const textChars = [];
         for (let i = 0; i < count; i += 1) {
             if (i === centerIndex) {
-                chars.push(`<span style="color:#e74c3c">${centerChar}</span>`);
+                htmlChars.push(`<span style="color:#e74c3c">${centerChar}</span>`);
+                textChars.push(centerChar);
             } else {
-                chars.push(flankChar);
+                htmlChars.push(flankChar);
+                textChars.push(flankChar);
             }
         }
-        return { direction, html: chars.join(" ") };
+        return {
+            trialIndex,
+            direction,
+            condition: congruency,
+            congruency,
+            html: htmlChars.join(" "),
+            text: textChars.join(" ")
+        };
     }
 
     function nextRound() {
@@ -132,8 +226,9 @@ document.addEventListener("DOMContentLoaded", () => {
             return;
         }
 
-        const stimulus = buildStimulus();
+        const stimulus = buildStimulus(finishedTrials);
         currentDirection = stimulus.direction;
+        currentStimulus = stimulus;
         display.innerHTML = stimulus.html;
         stimulusStartTime = Date.now();
         roundOpen = true;
@@ -142,6 +237,8 @@ document.addEventListener("DOMContentLoaded", () => {
         trialTimeout = setTimeout(() => {
             if (!roundOpen || !isPlaying || isPaused) return;
             roundOpen = false;
+            recordTrial("timeout", false, null);
+            currentStimulus = null;
             missCount += 1;
             finishedTrials += 1;
             showFeedback("超时", "wrong");
@@ -163,7 +260,10 @@ document.addEventListener("DOMContentLoaded", () => {
 
         const rt = Date.now() - stimulusStartTime;
         reactionTimes.push(rt);
-        if (response === currentDirection) {
+        const correct = response === currentDirection;
+        recordTrial(response, correct, rt);
+        currentStimulus = null;
+        if (correct) {
             score += 1;
             showFeedback("正确", "correct");
         } else {
@@ -200,6 +300,8 @@ document.addEventListener("DOMContentLoaded", () => {
             trialTimeout = setTimeout(() => {
                 if (!roundOpen || !isPlaying || isPaused) return;
                 roundOpen = false;
+                recordTrial("timeout", false, null);
+                currentStimulus = null;
                 missCount += 1;
                 finishedTrials += 1;
                 showFeedback("超时", "wrong");
@@ -229,6 +331,8 @@ document.addEventListener("DOMContentLoaded", () => {
         const avgRt = reactionTimes.length > 0
             ? Math.round(reactionTimes.reduce((sum, value) => sum + value, 0) / reactionTimes.length)
             : 0;
+        const finishedAt = new Date();
+        saveTrainingResult(finishedAt);
 
         if (forced) {
             showFeedback(`已停止（完成 ${finishedTrials} / ${totalTrials}）`);
@@ -258,6 +362,9 @@ document.addEventListener("DOMContentLoaded", () => {
         score = 0;
         missCount = 0;
         reactionTimes = [];
+        trialLog = [];
+        currentStimulus = null;
+        sessionStartedAt = null;
         totalTrials = sanitizeTrials(trialSetting.value);
         updateStats();
     }

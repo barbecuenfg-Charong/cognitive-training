@@ -13,6 +13,7 @@ let sessionSeed = "";
 let rng = Math.random;
 let initialHistory = [];
 let trialLog = [];
+let trialStartedAtMs = 0;
 
 const startScreen = document.getElementById("start-screen");
 const panel = document.getElementById("gf-panel");
@@ -70,6 +71,7 @@ function startGame() {
     antiStreakChoiceCount = 0;
     sessionStartedAt = new Date();
     trialLog = [];
+    trialStartedAtMs = 0;
 
     const seeded = window.SeededRandom;
     sessionSeed = seeded ? seeded.createSessionSeed("gambler-fallacy") : `gambler-fallacy-${Date.now()}`;
@@ -83,6 +85,7 @@ function startGame() {
     feedbackEl.textContent = "请选择下一次抛硬币结果。";
     renderHistory();
     updateStats();
+    trialStartedAtMs = Date.now();
 }
 
 function choose(prediction) {
@@ -90,25 +93,41 @@ function choose(prediction) {
         return;
     }
 
+    const answeredAt = new Date();
+    const rtMs = trialStartedAtMs ? Math.max(0, answeredAt.getTime() - trialStartedAtMs) : 0;
+    const historyBefore = history.slice(-HISTORY_SIZE);
     const { last, streak } = getTailStreak();
-    if (streak >= STREAK_THRESHOLD) {
+    const streakContext = streak >= STREAK_THRESHOLD;
+    const opposite = last === "H" ? "T" : "H";
+    const antiStreakChoice = streakContext && prediction === opposite;
+
+    if (streakContext) {
         streakContextCount += 1;
-        const opposite = last === "H" ? "T" : "H";
-        if (prediction === opposite) {
+        if (antiStreakChoice) {
             antiStreakChoiceCount += 1;
         }
     }
 
     const outcome = randomCoin();
+    const isCorrect = prediction === outcome;
     trialLog.push({
+        index: round,
         round: round + 1,
+        trialId: `gf-${String(round + 1).padStart(2, "0")}`,
+        historyBefore,
+        choice: prediction,
         prediction,
         outcome,
+        correct: isCorrect,
         tail: last,
-        tailStreak: streak
+        tailStreak: streak,
+        streakContext,
+        antiStreakChoice,
+        rtMs,
+        submittedAt: answeredAt.toISOString()
     });
 
-    if (prediction === outcome) {
+    if (isCorrect) {
         correct += 1;
         feedbackEl.textContent = `本轮结果: ${outcome}，预测正确。`;
     } else {
@@ -122,12 +141,17 @@ function choose(prediction) {
 
     if (round >= TOTAL_ROUNDS) {
         finish();
+    } else {
+        trialStartedAtMs = Date.now();
     }
 }
 
 function finish() {
     const acc = Math.round((correct / TOTAL_ROUNDS) * 100);
     const antiRate = streakContextCount === 0 ? 0 : Math.round((antiStreakChoiceCount / streakContextCount) * 100);
+    const finishedAt = new Date();
+    const durationMs = sessionStartedAt ? finishedAt.getTime() - sessionStartedAt.getTime() : 0;
+    const meanRtMs = Math.round(trialLog.reduce((sum, item) => sum + item.rtMs, 0) / Math.max(1, trialLog.length));
 
     document.getElementById("result-acc").textContent = `${acc}%`;
     document.getElementById("result-anti").textContent = `${antiRate}%`;
@@ -142,18 +166,35 @@ function finish() {
 
     if (window.TrainingResults) {
         window.TrainingResults.saveSession({
+            moduleId: "gambler-fallacy",
             gameId: "gambler-fallacy",
             gameName: "赌徒谬误任务",
-            startedAt: sessionStartedAt || new Date(),
-            finishedAt: new Date(),
+            startedAt: sessionStartedAt || finishedAt,
+            finishedAt,
+            durationMs,
+            score: acc,
+            summary: {
+                totalTrials: TOTAL_ROUNDS,
+                correctCount: correct,
+                accuracy: correct / TOTAL_ROUNDS,
+                streakContextCount,
+                antiStreakChoiceCount,
+                antiStreakChoiceRate: streakContextCount === 0 ? 0 : antiStreakChoiceCount / streakContextCount,
+                meanRtMs,
+                contentVersion: CONTENT_VERSION,
+                sessionSeed,
+                initialHistory: initialHistory.slice()
+            },
+            trials: trialLog.map((item) => ({ ...item })),
             metrics: {
                 accuracy: acc,
                 antiRate,
                 seed: sessionSeed,
                 contentVersion: CONTENT_VERSION,
-                initialHistory,
-                trials: trialLog
-            }
+                initialHistory: initialHistory.slice(),
+                trials: trialLog.map((item) => ({ ...item }))
+            },
+            tags: ["probability", "gambler-fallacy", "randomness"]
         });
     }
 

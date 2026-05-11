@@ -138,7 +138,7 @@ export const sections = [
             {
                 title: "停止信号任务",
                 tag: "反应抑制",
-                desc: "待开发...",
+                desc: "在出现停止信号时抑制已准备好的反应，评估反应抑制与停止信号反应时。",
                 icon: "fas fa-hand-paper",
                 href: "stop-signal.html",
                 cardClass: "card-stop-signal",
@@ -222,7 +222,7 @@ export const sections = [
             {
                 title: "蒙提霍尔问题",
                 tag: "条件概率",
-                desc: "待开发...",
+                desc: "在换门与坚持之间做选择，通过重复反馈理解条件概率与直觉偏差。",
                 icon: "fas fa-door-open",
                 href: "monty-hall.html",
                 cardClass: "card-monty-hall",
@@ -231,7 +231,7 @@ export const sections = [
             {
                 title: "基率忽略任务",
                 tag: "统计直觉",
-                desc: "待开发...",
+                desc: "在检测准确率和基础发生率之间权衡，训练把基率纳入概率判断。",
                 icon: "fas fa-chart-pie",
                 href: "base-rate.html",
                 cardClass: "card-base-rate",
@@ -240,7 +240,7 @@ export const sections = [
             {
                 title: "赌徒谬误任务",
                 tag: "随机性认知",
-                desc: "待开发...",
+                desc: "面对随机序列做下一次预测，识别连串后的反向预测倾向。",
                 icon: "fas fa-coins",
                 href: "gambler-fallacy.html",
                 cardClass: "card-gambler",
@@ -249,7 +249,7 @@ export const sections = [
             {
                 title: "贝叶斯更新任务",
                 tag: "信念修正",
-                desc: "待开发...",
+                desc: "根据先验和新证据修正概率估计，练习贝叶斯式信念更新。",
                 icon: "fas fa-chart-bar",
                 href: "bayes-update.html",
                 cardClass: "card-bayes",

@@ -1,12 +1,17 @@
 const STIMULI = ['F', 'R', 'G', 'L', 'P', '4', '7', 'J', 'S', 'k'];
 const ANGLES = [0, 45, 90, 135, 180, 225, 270, 315];
 const TOTAL_ROUNDS = 20;
+const GAME_ID = 'mental-rotation';
+const GAME_NAME = '心理旋转测试';
 
 let currentRound = 0;
 let correctCount = 0;
 let reactionTimes = [];
-let trialData = []; // { angle: 0, rt: 0, correct: true }
+let trialData = []; // { angle, correctAnswer, response, correct, rtMs }
 let isGameActive = false;
+let canRespond = false;
+let sessionStartedAt = null;
+let hasSavedSession = false;
 let startTime = 0;
 let currentTrial = {};
 
@@ -16,6 +21,9 @@ function startGame() {
     reactionTimes = [];
     trialData = [];
     isGameActive = true;
+    canRespond = false;
+    sessionStartedAt = new Date();
+    hasSavedSession = false;
     
     document.getElementById('start-screen').style.display = 'none';
     document.getElementById('mr-display').style.display = 'flex';
@@ -88,29 +96,42 @@ function nextRound() {
     }
     
     startTime = Date.now();
+    canRespond = true;
 }
 
 function checkAnswer(choice) {
-    if (!isGameActive) return;
+    if (!isGameActive || !canRespond) return;
     
     const rt = Date.now() - startTime;
     // Debounce very fast clicks
-    if (rt < 100) return;
-    
+    if (rt < 100) {
+        startTime = Date.now();
+        return;
+    }
+
+    canRespond = false;
+
     const isCorrect = (choice === 'same' && !currentTrial.isMirror) || 
                       (choice === 'different' && currentTrial.isMirror);
     
     const display = document.getElementById('mr-display');
+    const trial = {
+        angle: currentTrial.angleDiff,
+        correctAnswer: currentTrial.isMirror ? 'mirrored' : 'same',
+        response: choice,
+        correct: isCorrect,
+        rtMs: rt
+    };
     
     if (isCorrect) {
         correctCount++;
         reactionTimes.push(rt);
-        trialData.push({ angle: currentTrial.angleDiff, rt: rt, correct: true });
         display.style.borderColor = '#2ecc71';
     } else {
-        trialData.push({ angle: currentTrial.angleDiff, rt: rt, correct: false });
         display.style.borderColor = '#e74c3c';
     }
+
+    trialData.push(trial);
     
     updateScore();
     
@@ -124,8 +145,13 @@ function checkAnswer(choice) {
 
 function updateScore() {
     document.getElementById('score').textContent = correctCount;
-    const avg = reactionTimes.length > 0 ? Math.round(reactionTimes.reduce((a,b)=>a+b,0)/reactionTimes.length) : 0;
+    const avg = getMeanReactionTime();
     document.getElementById('avg-rt').textContent = avg;
+}
+
+function getMeanReactionTime() {
+    if (reactionTimes.length === 0) return 0;
+    return Math.round(reactionTimes.reduce((a, b) => a + b, 0) / reactionTimes.length);
 }
 
 function calculateSlope() {
@@ -138,23 +164,76 @@ function calculateSlope() {
     
     for (let t of correctTrials) {
         sumX += t.angle;
-        sumY += t.rt;
-        sumXY += t.angle * t.rt;
+        const rt = Number.isFinite(t.rtMs) ? t.rtMs : t.rt;
+        sumY += rt;
+        sumXY += t.angle * rt;
         sumXX += t.angle * t.angle;
     }
     
-    const slope = (n * sumXY - sumX * sumY) / (n * sumXX - sumX * sumX);
+    const denominator = (n * sumXX - sumX * sumX);
+    if (denominator === 0) return 0;
+    const slope = (n * sumXY - sumX * sumY) / denominator;
     return Math.round(slope);
+}
+
+function buildSessionSummary() {
+    const totalTrials = trialData.length;
+    const accuracy = totalTrials > 0 ? correctCount / totalTrials : 0;
+    const meanRtMs = getMeanReactionTime();
+    const slope = calculateSlope();
+
+    return {
+        totalTrials,
+        correctCount,
+        accuracy,
+        meanRtMs,
+        slope,
+        angleEffect: slope,
+        score: correctCount
+    };
+}
+
+function saveTrainingSession(finishedAt, summary) {
+    if (hasSavedSession) return;
+    hasSavedSession = true;
+
+    if (!window.TrainingResults || typeof window.TrainingResults.saveSession !== 'function' || !sessionStartedAt) {
+        return;
+    }
+
+    const durationMs = Math.max(0, finishedAt.getTime() - sessionStartedAt.getTime());
+
+    try {
+        window.TrainingResults.saveSession({
+            moduleId: GAME_ID,
+            gameId: GAME_ID,
+            gameName: GAME_NAME,
+            startedAt: sessionStartedAt,
+            finishedAt,
+            durationMs,
+            score: summary.score,
+            summary,
+            trials: trialData.map((trial) => ({ ...trial }))
+        });
+    } catch (error) {
+        console.error('Failed to save mental rotation session:', error);
+    }
 }
 
 function endGame() {
     isGameActive = false;
+    canRespond = false;
+    const finishedAt = new Date();
+    const summary = buildSessionSummary();
+
+    saveTrainingSession(finishedAt, summary);
+
     document.getElementById('mr-display').style.display = 'none';
     document.getElementById('result-modal').style.display = 'flex';
     
-    const accuracy = Math.round((correctCount / TOTAL_ROUNDS) * 100);
-    const avgRT = reactionTimes.length > 0 ? Math.round(reactionTimes.reduce((a,b)=>a+b,0)/reactionTimes.length) : 0;
-    const slope = calculateSlope();
+    const accuracy = Math.round(summary.accuracy * 100);
+    const avgRT = summary.meanRtMs;
+    const slope = summary.slope;
     
     document.getElementById('result-accuracy').textContent = accuracy + '%';
     document.getElementById('result-rt').textContent = avgRT + ' ms';
@@ -178,6 +257,7 @@ function endGame() {
 // Event Listeners
 document.addEventListener('keydown', (e) => {
     if (!isGameActive) return;
+    if (e.repeat) return;
     
     if (e.key === 'a' || e.key === 'A') {
         checkAnswer('same');

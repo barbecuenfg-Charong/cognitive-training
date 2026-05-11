@@ -42,8 +42,7 @@ document.addEventListener('DOMContentLoaded', () => {
         link.addEventListener("click", (event) => {
             event.preventDefault();
             try {
-                const { shell } = require("electron");
-                shell.openPath(window.location.href);
+                window.electronShell.openPath(window.location.href);
             } catch (_error) {
                 // Keep silent on non-electron runtime.
             }

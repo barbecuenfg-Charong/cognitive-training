@@ -4,7 +4,12 @@ let trialStartTime = 0;
 let hits = 0;
 let misses = 0;
 let falseAlarms = 0;
+let correctRejections = 0;
 let reactionTimes = [];
+let trialLog = [];
+let currentTrial = null;
+let sessionStartedAt = null;
+let hasSavedSession = false;
 let stimulusTimeout;
 let isiTimeout;
 let gameTimer;
@@ -23,7 +28,12 @@ function startGame() {
     hits = 0;
     misses = 0;
     falseAlarms = 0;
+    correctRejections = 0;
     reactionTimes = [];
+    trialLog = [];
+    currentTrial = null;
+    sessionStartedAt = new Date();
+    hasSavedSession = false;
     hasResponded = false;
     
     document.getElementById('start-screen').style.display = 'none';
@@ -51,6 +61,15 @@ function runTrial() {
     } else {
         currentLetter = LETTERS[Math.floor(Math.random() * LETTERS.length)];
     }
+
+    currentTrial = {
+        trialIndex: trialLog.length,
+        stimulus: currentLetter,
+        isTarget: currentLetter === 'X',
+        responded: false,
+        correct: null,
+        rtMs: null
+    };
     
     // Show letter
     const display = document.getElementById('target-letter');
@@ -68,11 +87,7 @@ function runTrial() {
         isiTimeout = setTimeout(() => {
             if (!isGameActive) return;
             
-            // Check for miss (if target was X and no response by end of trial)
-            if (currentLetter === 'X' && !hasResponded) {
-                misses++;
-                updateScore();
-            }
+            completeCurrentTrial(true);
             
             runTrial();
         }, ISI);
@@ -81,12 +96,15 @@ function runTrial() {
 }
 
 function handleResponse() {
-    if (!isGameActive || hasResponded) return;
+    if (!isGameActive || hasResponded || !currentTrial) return;
     
     const responseTime = Date.now();
     const rt = responseTime - trialStartTime;
     
     hasResponded = true;
+    currentTrial.responded = true;
+    currentTrial.rtMs = rt;
+    currentTrial.correct = currentTrial.isTarget;
     
     // Check correctness
     if (currentLetter === 'X') {
@@ -106,14 +124,93 @@ function handleResponse() {
     updateScore();
 }
 
+function completeCurrentTrial(includeUnanswered) {
+    if (!currentTrial) return;
+    if (!currentTrial.responded && !includeUnanswered) {
+        currentTrial = null;
+        return;
+    }
+
+    if (!currentTrial.responded) {
+        currentTrial.correct = !currentTrial.isTarget;
+        if (currentTrial.isTarget) {
+            misses++;
+        } else {
+            correctRejections++;
+        }
+    }
+
+    trialLog.push({
+        trialIndex: currentTrial.trialIndex,
+        stimulus: currentTrial.stimulus,
+        isTarget: currentTrial.isTarget,
+        responded: currentTrial.responded,
+        correct: currentTrial.correct,
+        rtMs: currentTrial.rtMs
+    });
+    currentTrial = null;
+    updateScore();
+}
+
+function getMeanRtMs() {
+    return reactionTimes.length > 0 ? Math.round(reactionTimes.reduce((a,b)=>a+b,0)/reactionTimes.length) : 0;
+}
+
 function updateScore() {
     document.getElementById('hits').textContent = hits;
     document.getElementById('false-alarms').textContent = falseAlarms;
-    const avg = reactionTimes.length > 0 ? Math.round(reactionTimes.reduce((a,b)=>a+b,0)/reactionTimes.length) : 0;
+    const avg = getMeanRtMs();
     document.getElementById('avg-rt').textContent = avg;
 }
 
+function saveTrainingSession(finishedAt) {
+    if (hasSavedSession || !window.TrainingResults) return;
+
+    const startedAt = sessionStartedAt || finishedAt;
+    const durationMs = finishedAt.getTime() - startedAt.getTime();
+    const totalTrials = trialLog.length;
+    const targetTrials = hits + misses;
+    const nonTargetTrials = falseAlarms + correctRejections;
+    const correctCount = hits + correctRejections;
+    const accuracy = totalTrials > 0 ? correctCount / totalTrials : 0;
+    const hitRate = targetTrials > 0 ? hits / targetTrials : 0;
+    const falseAlarmRate = nonTargetTrials > 0 ? falseAlarms / nonTargetTrials : 0;
+    const meanRtMs = getMeanRtMs();
+
+    window.TrainingResults.saveSession({
+        moduleId: "cpt",
+        gameId: "cpt",
+        gameName: "持续表现任务 (CPT)",
+        startedAt,
+        finishedAt,
+        durationMs,
+        score: Math.round(accuracy * 100),
+        summary: {
+            totalTrials,
+            hitCount: hits,
+            missCount: misses,
+            falseAlarmCount: falseAlarms,
+            correctRejectionCount: correctRejections,
+            accuracy,
+            hitRate,
+            falseAlarmRate,
+            meanRtMs
+        },
+        trials: trialLog.map((trial) => ({ ...trial })),
+        metrics: {
+            accuracy: `${Math.round(accuracy * 100)}%`,
+            hitRate: `${Math.round(hitRate * 100)}%`,
+            falseAlarmRate: `${Math.round(falseAlarmRate * 100)}%`,
+            meanRT: `${meanRtMs}ms`
+        },
+        tags: ["attention", "cpt", "sustained-attention"]
+    });
+    hasSavedSession = true;
+}
+
 function endGame() {
+    const finishedAt = new Date();
+    completeCurrentTrial(false);
     isGameActive = false;
     clearTimeout(stimulusTimeout);
     clearTimeout(isiTimeout);
@@ -126,7 +223,7 @@ function endGame() {
     document.getElementById('result-hits').textContent = hits;
     document.getElementById('result-misses').textContent = misses;
     document.getElementById('result-fa').textContent = falseAlarms;
-    const avg = reactionTimes.length > 0 ? Math.round(reactionTimes.reduce((a,b)=>a+b,0)/reactionTimes.length) : 0;
+    const avg = getMeanRtMs();
     document.getElementById('result-rt').textContent = avg + ' ms';
     
     // Calculate performance score (d-prime proxy or simple accuracy)
@@ -140,6 +237,7 @@ function endGame() {
     else feedback = "加油！试着更加专注，不要错过目标。";
     
     document.getElementById('feedback-text').textContent = feedback;
+    saveTrainingSession(finishedAt);
 }
 
 // Event Listeners

@@ -14,6 +14,10 @@ document.addEventListener('DOMContentLoaded', () => {
     let currentTarget = 1;
     let totalNumbers = 25;
     let isAdvancedMode = false;
+    let sessionStartedAt = null;
+    let targetStartedAt = 0;
+    let trialLog = [];
+    let sessionSaved = false;
     
     // Mode selection
     document.querySelectorAll('input[name="game-mode"]').forEach(radio => {
@@ -47,6 +51,10 @@ document.addEventListener('DOMContentLoaded', () => {
         resetGame();
         isPlaying = true;
         startTime = Date.now();
+        sessionStartedAt = new Date(startTime);
+        targetStartedAt = startTime;
+        trialLog = [];
+        sessionSaved = false;
         
         generateGrid(true); // Shuffle and render
         
@@ -62,6 +70,10 @@ document.addEventListener('DOMContentLoaded', () => {
         timerDisplay.textContent = "00:00";
         if (timerInterval) clearInterval(timerInterval);
         isPlaying = false;
+        sessionStartedAt = null;
+        targetStartedAt = 0;
+        trialLog = [];
+        sessionSaved = false;
         startBtn.disabled = false;
         startBtn.textContent = "开始测试";
         gridSizeInput.disabled = false;
@@ -108,6 +120,17 @@ document.addEventListener('DOMContentLoaded', () => {
     
     function handleCellClick(cell, num) {
         if (!isPlaying) return;
+
+        const clickTime = Date.now();
+        const trial = {
+            index: trialLog.length,
+            targetNumber: currentTarget,
+            clickedNumber: num,
+            correct: num === currentTarget,
+            rtMs: Math.max(0, clickTime - targetStartedAt),
+            elapsedMs: Math.max(0, clickTime - startTime)
+        };
+        trialLog.push(trial);
         
         if (num === currentTarget) {
             // Correct
@@ -130,6 +153,7 @@ document.addEventListener('DOMContentLoaded', () => {
             } else {
                 currentTarget++;
                 targetDisplay.textContent = currentTarget;
+                targetStartedAt = clickTime;
             }
         } else {
             // Wrong
@@ -144,13 +168,62 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     
     function endGame() {
+        if (sessionSaved) return;
+
         isPlaying = false;
         clearInterval(timerInterval);
-        const elapsed = (Date.now() - startTime) / 1000;
+        const finishedAt = new Date();
+        const durationMs = Math.max(0, finishedAt.getTime() - startTime);
+        const elapsed = durationMs / 1000;
         finalTimeDisplay.textContent = elapsed.toFixed(2) + "秒";
+
+        saveTrainingResult(finishedAt, durationMs);
+        sessionSaved = true;
+
         resultModal.classList.remove('hidden');
         startBtn.disabled = false;
         startBtn.textContent = "开始测试";
         gridSizeInput.disabled = false;
+    }
+
+    function saveTrainingResult(finishedAt, durationMs) {
+        if (!window.TrainingResults || !sessionStartedAt) return;
+
+        const correctTrials = trialLog.filter(trial => trial.correct);
+        const correctCount = correctTrials.length;
+        const wrongClickCount = trialLog.length - correctCount;
+        const totalTrials = trialLog.length;
+        const accuracy = totalTrials > 0 ? correctCount / totalTrials : 0;
+        const meanRtMs = correctTrials.length > 0
+            ? Math.round(correctTrials.reduce((sum, trial) => sum + trial.rtMs, 0) / correctTrials.length)
+            : 0;
+        const score = Math.round(accuracy * 100);
+
+        window.TrainingResults.saveSession({
+            moduleId: "schulte",
+            gameId: "schulte",
+            gameName: "舒尔特方格",
+            startedAt: sessionStartedAt,
+            finishedAt,
+            durationMs,
+            score,
+            summary: {
+                gridSize: parseInt(gridSizeInput.value, 10) || 5,
+                totalTrials,
+                correctCount,
+                accuracy,
+                totalTimeMs: durationMs,
+                meanRtMs,
+                wrongClickCount
+            },
+            trials: trialLog.map(trial => ({ ...trial })),
+            metrics: {
+                time: `${(durationMs / 1000).toFixed(2)}秒`,
+                accuracy: `${score}%`,
+                meanRT: `${meanRtMs}ms`,
+                wrongClicks: wrongClickCount
+            },
+            tags: ["attention", "schulte"]
+        });
     }
 });

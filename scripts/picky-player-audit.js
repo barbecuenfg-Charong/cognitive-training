@@ -6,6 +6,12 @@ const vm = require("vm");
 const ROOT = path.resolve(__dirname, "..");
 const CONFIG_PATH = path.join(ROOT, "src", "home", "config.js");
 const OUTPUT_PATH = path.join(ROOT, "doc", "06-picky-player-evaluation.md");
+const args = new Set(process.argv.slice(2));
+const CHECK_MODE = args.has("--check");
+const FAIL_ON = process.argv
+    .slice(2)
+    .find((item) => item.startsWith("--fail-on="))
+    ?.split("=")[1] || "high";
 
 const PLACEHOLDER_PATTERNS = [
     /待开发/gi,
@@ -245,12 +251,9 @@ function severityOf(taskResult) {
     return "通过";
 }
 
-function toMarkdown(results) {
-    const now = new Date();
-    const date = now.toISOString().slice(0, 10);
-
+function summarizeResults(results) {
     const gameResults = results.filter((r) => !r.sectionTitle.includes("辅助工具") && r.title !== "文档中心");
-    const totals = {
+    return {
         all: results.length,
         games: gameResults.length,
         passed: results.filter((r) => severityOf(r) === "通过").length,
@@ -258,6 +261,24 @@ function toMarkdown(results) {
         medium: results.filter((r) => severityOf(r) === "中").length,
         low: results.filter((r) => severityOf(r) === "低").length
     };
+}
+
+function shouldFail(totals) {
+    if (FAIL_ON === "low") {
+        return totals.high > 0 || totals.medium > 0 || totals.low > 0;
+    }
+    if (FAIL_ON === "medium") {
+        return totals.high > 0 || totals.medium > 0;
+    }
+    return totals.high > 0;
+}
+
+function toMarkdown(results) {
+    const now = new Date();
+    const date = now.toISOString().slice(0, 10);
+
+    const gameResults = results.filter((r) => !r.sectionTitle.includes("辅助工具") && r.title !== "文档中心");
+    const totals = summarizeResults(results);
 
     const lines = [];
     lines.push("# 06-挑剔玩家全量测评记录");
@@ -343,8 +364,18 @@ async function main() {
             results.push(evaluated);
         }
         const markdown = toMarkdown(results);
-        fs.writeFileSync(OUTPUT_PATH, markdown, "utf8");
-        console.log(`Generated: ${path.relative(ROOT, OUTPUT_PATH)}`);
+        const totals = summarizeResults(results);
+        if (CHECK_MODE) {
+            console.log(`Checked active entries: ${results.length}`);
+            console.log(`Risk summary: high=${totals.high}, medium=${totals.medium}, low=${totals.low}, passed=${totals.passed}`);
+            console.log(`Fail threshold: ${FAIL_ON}`);
+            if (shouldFail(totals)) {
+                process.exitCode = 1;
+            }
+        } else {
+            fs.writeFileSync(OUTPUT_PATH, markdown, "utf8");
+            console.log(`Generated: ${path.relative(ROOT, OUTPUT_PATH)}`);
+        }
         console.log(`Visited active entries: ${results.length}`);
     } finally {
         await new Promise((resolve) => server.close(resolve));
