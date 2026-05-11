@@ -1,6 +1,9 @@
 document.addEventListener('DOMContentLoaded', () => {
     const GAME_ID = "nback";
     const GAME_NAME = "N-Back 记忆训练";
+    const CONTENT_VERSION = "nback-working-memory-update-v2";
+    const TARGET_PROBABILITY = 0.3;
+    const RESPONSE_COOLDOWN_MS = 100;
     const startBtn = document.getElementById('start-btn');
     const nLevelInput = document.getElementById('n-level');
     const speedInput = document.getElementById('speed');
@@ -13,10 +16,12 @@ document.addEventListener('DOMContentLoaded', () => {
     const resultModal = document.getElementById('result-modal');
     const finalScoreDisplay = document.getElementById('final-score');
     const finalAccuracyDisplay = document.getElementById('final-accuracy');
+    const finalTrainingFeedback = document.getElementById('final-training-feedback');
     const restartBtn = document.getElementById('restart-btn');
+    const charTypeInputs = Array.from(document.querySelectorAll('input[name="char-type"]'));
 
     let sequence = [];
-    let history = []; // Stores { char, isTarget, userAction: 'none'|'match', result: 'correct'|'wrong'|'missed'|'neutral' }
+    let history = [];
     let currentIndex = 0;
     let score = 0;
     let correctMatches = 0;
@@ -31,6 +36,8 @@ document.addEventListener('DOMContentLoaded', () => {
     let charType = 'letters';
     let sessionStartedAt = null;
     let sessionSaved = false;
+    let sessionSeed = null;
+    let stimulusRng = null;
 
     // Characters to use
     const letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
@@ -38,7 +45,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const hanzi = "日月山水火木金土天人中大大小多上下左右前后红白蓝绿".split('');
 
     // Mode selection
-    document.querySelectorAll('input[name="char-type"]').forEach(radio => {
+    charTypeInputs.forEach(radio => {
         radio.addEventListener('change', (e) => {
             charType = e.target.value;
         });
@@ -56,12 +63,305 @@ document.addEventListener('DOMContentLoaded', () => {
         if (e.repeat) return; // Prevent key hold repetition
         // Ignore key presses during cooldown
         const roundStartTime = parseInt(display.dataset.startTime || 0);
-        if (Date.now() - roundStartTime < 100) return;
+        if (Date.now() - roundStartTime < RESPONSE_COOLDOWN_MS) return;
         
         if (isPlaying && (e.code === 'Space' || e.code === 'Enter')) {
             handleMatch();
         }
     });
+
+    function fallbackHashString(value) {
+        const text = String(value || "");
+        let hash = 2166136261 >>> 0;
+        for (let i = 0; i < text.length; i += 1) {
+            hash ^= text.charCodeAt(i);
+            hash = Math.imul(hash, 16777619);
+        }
+        return hash >>> 0;
+    }
+
+    function fallbackMulberry32(seed) {
+        let state = seed >>> 0;
+        return function next() {
+            state = (state + 0x6D2B79F5) >>> 0;
+            let t = state;
+            t = Math.imul(t ^ (t >>> 15), t | 1);
+            t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+            return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+        };
+    }
+
+    function createFallbackToken() {
+        if (window.crypto && typeof window.crypto.getRandomValues === "function") {
+            const bytes = new Uint32Array(2);
+            window.crypto.getRandomValues(bytes);
+            return `${bytes[0].toString(36)}${bytes[1].toString(36)}`;
+        }
+        const now = Date.now().toString(36);
+        const preciseNow = window.performance && typeof window.performance.now === "function"
+            ? Math.round(window.performance.now() * 1000).toString(36)
+            : "0";
+        return `${now}${preciseNow}`;
+    }
+
+    function createSessionSeed() {
+        if (window.SeededRandom && typeof window.SeededRandom.createSessionSeed === "function") {
+            return window.SeededRandom.createSessionSeed(GAME_ID);
+        }
+        return `${GAME_ID}-${Date.now().toString(36)}-${createFallbackToken()}`;
+    }
+
+    function createRng(seed) {
+        if (window.SeededRandom && typeof window.SeededRandom.createRngFromSeed === "function") {
+            return window.SeededRandom.createRngFromSeed(seed);
+        }
+        return fallbackMulberry32(fallbackHashString(seed));
+    }
+
+    function nextRandom() {
+        if (!stimulusRng) {
+            sessionSeed = sessionSeed || createSessionSeed();
+            stimulusRng = createRng(`${sessionSeed}:stimuli:${charType}:${n}:${totalRounds}`);
+        }
+        return stimulusRng();
+    }
+
+    function getSourceChars() {
+        return charType === 'hanzi' ? hanzi : letters.split('');
+    }
+
+    function pickRandom(list) {
+        if (!list.length) return null;
+        return list[Math.floor(nextRandom() * list.length)];
+    }
+
+    function uniqueValues(list) {
+        return Array.from(new Set(list));
+    }
+
+    function getNBackStimulus() {
+        if (n === 0 || sequence.length < n) return null;
+        return sequence[sequence.length - n];
+    }
+
+    function getTargetCandidates() {
+        if (n === 0) {
+            return uniqueValues(sequence);
+        }
+        const nBackStimulus = getNBackStimulus();
+        return nBackStimulus === null ? [] : [nBackStimulus];
+    }
+
+    function getNonTargetCandidates(sourceChars) {
+        if (n === 0) {
+            return sourceChars.filter(char => !sequence.includes(char));
+        }
+
+        const nBackStimulus = getNBackStimulus();
+        const recentWindow = sequence.slice(-Math.max(10, n * 3));
+        const strictCandidates = sourceChars.filter(char => {
+            if (nBackStimulus !== null && char === nBackStimulus) return false;
+            if (sequence.length > 0 && char === sequence[sequence.length - 1]) return false;
+            return recentWindow.filter(item => item === char).length < 2;
+        });
+
+        if (strictCandidates.length > 0) {
+            return strictCandidates;
+        }
+
+        const relaxedCandidates = sourceChars.filter(char => nBackStimulus === null || char !== nBackStimulus);
+        return relaxedCandidates.length > 0 ? relaxedCandidates : sourceChars.slice();
+    }
+
+    function getMatchedStimulus(stimulus) {
+        if (n === 0) {
+            return sequence.includes(stimulus) ? stimulus : null;
+        }
+
+        const nBackStimulus = getNBackStimulus();
+        return nBackStimulus !== null && stimulus === nBackStimulus ? nBackStimulus : null;
+    }
+
+    function generateStimulus() {
+        const sourceChars = getSourceChars();
+        const targetCandidates = getTargetCandidates();
+        const nonTargetCandidates = getNonTargetCandidates(sourceChars);
+        const canGenerateTarget = targetCandidates.length > 0;
+        const mustGenerateTarget = canGenerateTarget && nonTargetCandidates.length === 0;
+        const shouldGenerateTarget = canGenerateTarget
+            && (mustGenerateTarget || nextRandom() < TARGET_PROBABILITY);
+        const stimulus = shouldGenerateTarget
+            ? pickRandom(targetCandidates)
+            : pickRandom(nonTargetCandidates);
+        const matchedStimulus = getMatchedStimulus(stimulus);
+
+        return {
+            stimulus,
+            targetStimulus: n === 0 ? matchedStimulus : getNBackStimulus(),
+            matchedStimulus,
+            isTarget: matchedStimulus !== null
+        };
+    }
+
+    function classifyTrial(trial) {
+        if (trial.isTarget && trial.responded) return "hit";
+        if (trial.isTarget && !trial.responded) return "miss";
+        if (!trial.isTarget && trial.responded) return "falseAlarm";
+        return "correctRejection";
+    }
+
+    function resultFromClassification(classification) {
+        if (classification === "hit") return "correct";
+        if (classification === "miss") return "missed";
+        if (classification === "falseAlarm") return "wrong";
+        return "neutral";
+    }
+
+    function isCorrectClassification(classification) {
+        return classification === "hit" || classification === "correctRejection";
+    }
+
+    function average(values) {
+        const validValues = values.filter(value => Number.isFinite(value));
+        if (validValues.length === 0) return 0;
+        return Math.round(validValues.reduce((sum, value) => sum + value, 0) / validValues.length);
+    }
+
+    function ratio(numerator, denominator) {
+        return denominator > 0 ? numerator / denominator : 0;
+    }
+
+    function formatPercent(value) {
+        return `${Math.round(value * 100)}%`;
+    }
+
+    function getLoadGuidance(summary) {
+        const missRate = ratio(summary.missCount, summary.targetTrials);
+        const lowHitRate = summary.targetTrials > 0 && summary.hitRate < 0.6;
+        const highMissRate = summary.targetTrials > 0 && missRate >= 0.35;
+        const highFalseAlarmRate = summary.nonTargetTrials > 0 && summary.falseAlarmRate >= 0.2;
+
+        if (lowHitRate && highFalseAlarmRate) {
+            return {
+                loadAssessment: "tooHigh",
+                recommendation: `当前 n=${summary.nLevel} 同时出现较多遗漏和误报，负荷偏高。下一轮建议先降到 n=${Math.max(0, summary.nLevel - 1)}，或把速度放慢 0.5 秒。`
+            };
+        }
+
+        if (highMissRate || lowHitRate) {
+            return {
+                loadAssessment: "possiblyHigh",
+                recommendation: `当前 n=${summary.nLevel} 对更新保持有压力，主要问题是目标遗漏。下一轮建议保持或下调 N，并优先练习“新刺激进入、旧刺激移出”的更新节奏。`
+            };
+        }
+
+        if (highFalseAlarmRate || summary.falseAlarmCount >= 3) {
+            return {
+                loadAssessment: "unstableControl",
+                recommendation: `当前 n=${summary.nLevel} 负荷未必过高，但匹配判断偏急。下一轮建议维持 N，确认当前刺激等于目标位置后再按，先降低误报。`
+            };
+        }
+
+        if (summary.hitRate >= 0.8 && summary.falseAlarmRate <= 0.1 && summary.accuracy >= 0.8) {
+            return {
+                loadAssessment: "readyToIncrease",
+                recommendation: `当前 n=${summary.nLevel} 负荷可控。下一轮可以增加 5-10 轮，或尝试 n=${Math.min(5, summary.nLevel + 1)}。`
+            };
+        }
+
+        return {
+            loadAssessment: "appropriate",
+            recommendation: `当前 n=${summary.nLevel} 负荷基本合适。下一轮建议维持 N，继续提高命中稳定性并控制误报。`
+        };
+    }
+
+    function buildSummary() {
+        const totalTrials = history.length;
+        const targetTrials = history.filter(trial => trial.isTarget).length;
+        const nonTargetTrials = totalTrials - targetTrials;
+        const hitCount = history.filter(trial => trial.classification === "hit").length;
+        const missCount = history.filter(trial => trial.classification === "miss").length;
+        const falseAlarmCount = history.filter(trial => trial.classification === "falseAlarm").length;
+        const correctRejectionCount = history.filter(trial => trial.classification === "correctRejection").length;
+        const correctCount = hitCount + correctRejectionCount;
+        const hitRts = history
+            .filter(trial => trial.classification === "hit")
+            .map(trial => trial.rtMs);
+        const responseRts = history
+            .filter(trial => trial.responded)
+            .map(trial => trial.rtMs);
+        const nProgression = history.map(trial => ({
+            index: trial.index,
+            nLevel: trial.nLevel
+        }));
+
+        const summary = {
+            totalTrials,
+            nLevel: n,
+            sessionType: "fixed-level",
+            isAdaptive: false,
+            nProgression,
+            targetTrials,
+            nonTargetTrials,
+            hitCount,
+            missCount,
+            falseAlarmCount,
+            correctRejectionCount,
+            hits: hitCount,
+            misses: missCount,
+            falseAlarms: falseAlarmCount,
+            correctRejections: correctRejectionCount,
+            correctCount,
+            responseCount: hitCount + falseAlarmCount,
+            hitRate: ratio(hitCount, targetTrials),
+            missRate: ratio(missCount, targetTrials),
+            falseAlarmRate: ratio(falseAlarmCount, nonTargetTrials),
+            correctRejectionRate: ratio(correctRejectionCount, nonTargetTrials),
+            accuracy: ratio(correctCount, totalTrials),
+            meanRtMs: average(hitRts),
+            responseMeanRtMs: average(responseRts),
+            targetProbability: TARGET_PROBABILITY,
+            stimulusDurationMs: speed,
+            charType,
+            seed: sessionSeed,
+            contentVersion: CONTENT_VERSION
+        };
+
+        return {
+            ...summary,
+            ...getLoadGuidance(summary)
+        };
+    }
+
+    function buildTrainingFeedback(summary) {
+        const omissionText = `目标遗漏 ${summary.missCount}/${summary.targetTrials}，命中率 ${formatPercent(summary.hitRate)}`;
+        const falseAlarmText = `误报 ${summary.falseAlarmCount}/${summary.nonTargetTrials}，误报率 ${formatPercent(summary.falseAlarmRate)}`;
+        return `${omissionText}；${falseAlarmText}。${summary.recommendation}`;
+    }
+
+    function serializeTrial(item, index) {
+        const classification = item.classification || classifyTrial(item);
+        return {
+            index: item.index ?? index,
+            trialIndex: item.trialIndex ?? index,
+            nLevel: item.nLevel,
+            stimulus: item.stimulus || item.char,
+            targetStimulus: item.targetStimulus ?? null,
+            matchedStimulus: item.matchedStimulus ?? null,
+            isTarget: item.isTarget,
+            response: item.response || 'none',
+            responded: Boolean(item.responded),
+            correct: item.correct === null ? null : Boolean(item.correct),
+            rtMs: Number.isFinite(item.rtMs) ? item.rtMs : null,
+            timedOut: Boolean(item.timedOut),
+            classification,
+            charType: item.charType,
+            stimulusDurationMs: item.stimulusDurationMs,
+            startedAt: item.startedAt,
+            finishedAt: item.finishedAt,
+            elapsedMs: item.elapsedMs
+        };
+    }
 
     function startGame() {
         if (isPlaying) return;
@@ -88,6 +388,8 @@ document.addEventListener('DOMContentLoaded', () => {
         isPlaying = true;
         sessionStartedAt = new Date();
         sessionSaved = false;
+        sessionSeed = createSessionSeed();
+        stimulusRng = createRng(`${sessionSeed}:stimuli:${charType}:${n}:${totalRounds}`);
         
         scoreDisplay.textContent = "0";
         roundDisplay.textContent = `0/${totalRounds}`;
@@ -96,6 +398,9 @@ document.addEventListener('DOMContentLoaded', () => {
         nLevelInput.disabled = true;
         speedInput.disabled = true;
         roundsInput.disabled = true;
+        charTypeInputs.forEach(input => {
+            input.disabled = true;
+        });
         
         feedback.textContent = "";
         feedback.className = "feedback";
@@ -116,67 +421,32 @@ document.addEventListener('DOMContentLoaded', () => {
         const roundStartTime = Date.now();
         display.dataset.startTime = roundStartTime;
         
-        // Generate next letter
-        // To make it playable, we want ~30% chance of a match
-        let char;
-        const shouldMatch = Math.random() < 0.3 && sequence.length >= (n === 0 ? 1 : n);
-        const sourceChars = (charType === 'hanzi') ? hanzi : letters;
-        
-        if (shouldMatch) {
-            if (n === 0) {
-                // N=0 Match: Pick ANY char that appeared before
-                // We must pick from sequence history
-                // sequence is not empty here because of the condition `sequence.length >= 1`
-                char = sequence[Math.floor(Math.random() * sequence.length)];
-            } else {
-                // N-Back Match: Pick the specific N-back char
-                char = sequence[sequence.length - n];
-            }
-        } else {
-            // Pick a random char, but avoid accidental match if possible
-            
-            do {
-                // For N=0, "New" means NOT in sequence.
-                // If sequence contains ALL chars, we can't generate a non-match.
-                // We will try to find a new one.
-                // If sequence is very long, this might be hard, but with 20 rounds and 26 chars, it's fine.
-                // Fallback: if we loop too much, just pick random (might be accidental match).
-                
-                char = sourceChars[Math.floor(Math.random() * sourceChars.length)];
-            } while (
-                (n > 0 && sequence.length >= n && char === sequence[sequence.length - n]) || // Avoid accidental N-back match
-                (n === 0 && sequence.includes(char)) || // Avoid accidental 0-back match (must be NEW)
-                (n > 0 && sequence.length > 0 && char === sequence[sequence.length - 1]) || // Avoid immediate 1-back repetition (A-A)
-                
-                // Repetition check (only for N>0, because for N=0, "repetition" is literally the definition of a match)
-                (n > 0 && sequence.slice(-Math.max(10, n*3)).filter(c => c === char).length >= 2)
-            );
-        }
-        
+        const generated = generateStimulus();
+        const char = generated.stimulus;
         sequence.push(char);
         
-        // Record history for this round (initial state)
-        // CRITICAL FIX: The target check logic here must be identical to the one in handleMatch()
-        let isTarget = false;
-        if (n === 0) {
-            // N=0: Target if char exists in PREVIOUS sequence (excluding current newly added one)
-            // sequence has just been pushed. So check sequence[0...length-2]
-            isTarget = sequence.slice(0, sequence.length - 1).includes(char);
-        } else {
-            isTarget = (sequence.length > n && char === sequence[sequence.length - 1 - n]);
-        }
-        
         history.push({
+            index: currentIndex,
             trialIndex: currentIndex,
+            nLevel: n,
             stimulus: char,
-            char: char,
-            isTarget: isTarget,
+            targetStimulus: generated.targetStimulus,
+            matchedStimulus: generated.matchedStimulus,
+            char,
+            charType,
+            isTarget: generated.isTarget,
             response: 'none',
+            responded: false,
             userAction: 'none',
             correct: null,
             result: 'neutral',
             rtMs: null,
             elapsedMs: null,
+            timedOut: false,
+            classification: null,
+            stimulusDurationMs: speed,
+            startedAt: new Date(roundStartTime).toISOString(),
+            finishedAt: null,
             startedAtMs: roundStartTime
         });
         
@@ -194,16 +464,21 @@ document.addEventListener('DOMContentLoaded', () => {
             // If it was NOT a target, and user did NOTHING, then it is CORRECT rejection (neutral/correct).
             
             const currentRound = history[currentIndex];
+            if (!currentRound) return;
             currentRound.elapsedMs = Math.max(0, Date.now() - currentRound.startedAtMs);
-            if (currentRound.userAction === 'none') {
-                if (currentRound.isTarget) {
+            if (!currentRound.finishedAt) {
+                currentRound.finishedAt = new Date().toISOString();
+            }
+            if (!currentRound.responded) {
+                currentRound.response = 'none';
+                currentRound.timedOut = true;
+                currentRound.classification = classifyTrial(currentRound);
+                currentRound.correct = isCorrectClassification(currentRound.classification);
+                currentRound.result = resultFromClassification(currentRound.classification);
+
+                if (currentRound.classification === "miss") {
                     missedMatches++;
-                    currentRound.result = 'missed';
-                    currentRound.correct = false;
                     showFeedback("漏选!", "wrong");
-                } else {
-                    currentRound.result = 'neutral'; // Correct rejection
-                    currentRound.correct = true;
                 }
             }
             
@@ -217,30 +492,25 @@ document.addEventListener('DOMContentLoaded', () => {
         
         // Check for cooldown (100ms)
         const roundStartTime = parseInt(display.dataset.startTime || 0);
-        if (Date.now() - roundStartTime < 100) return;
+        if (Date.now() - roundStartTime < RESPONSE_COOLDOWN_MS) return;
 
-        hasResponded = true;
         const currentRound = history[currentIndex];
         if (!currentRound) return;
+        hasResponded = true;
         currentRound.userAction = 'match';
         currentRound.response = 'match';
+        currentRound.responded = true;
         currentRound.rtMs = Math.max(0, Date.now() - roundStartTime);
         currentRound.elapsedMs = currentRound.rtMs;
+        currentRound.timedOut = false;
+        currentRound.finishedAt = new Date().toISOString();
+        currentRound.classification = classifyTrial(currentRound);
+        currentRound.correct = isCorrectClassification(currentRound.classification);
+        currentRound.result = resultFromClassification(currentRound.classification);
         
-        if (sequence.length <= n) {
-            // Impossible to match yet
-            wrongMatches++;
-            currentRound.result = 'wrong';
-            currentRound.correct = false;
-            showFeedback("错误 (过早)", "wrong");
-            return;
-        }
-
-        if (currentRound.isTarget) {
+        if (currentRound.classification === "hit") {
             score += 10;
             correctMatches++;
-            currentRound.result = 'correct';
-            currentRound.correct = true;
             showFeedback("正确!", "correct");
             scoreDisplay.textContent = score;
             
@@ -250,9 +520,8 @@ document.addEventListener('DOMContentLoaded', () => {
         } else {
             score -= 5;
             wrongMatches++;
-            currentRound.result = 'wrong';
-            currentRound.correct = false;
-            showFeedback("错误!", "wrong");
+            const earlyPress = n > 0 && currentRound.targetStimulus === null;
+            showFeedback(earlyPress ? "错误 (尚无N-back目标)" : "错误!", "wrong");
             scoreDisplay.textContent = score;
         }
     }
@@ -274,16 +543,14 @@ document.addEventListener('DOMContentLoaded', () => {
         const finishedAt = new Date();
         const startedAt = sessionStartedAt || finishedAt;
         const durationMs = Math.max(0, finishedAt.getTime() - startedAt.getTime());
-        
-        const totalPossible = correctMatches + missedMatches;
-        // Avoid division by zero
-        const accuracy = totalPossible > 0 
-            ? Math.round((correctMatches / (totalPossible + wrongMatches)) * 100) 
-            : 0; // Simple accuracy metric
+        const summary = buildSummary();
             
         finalScoreDisplay.textContent = score;
-        finalAccuracyDisplay.textContent = `${accuracy}% (正确: ${correctMatches}, 错误: ${wrongMatches}, 漏选: ${missedMatches})`;
-        saveTrainingResult(finishedAt, durationMs, accuracy);
+        finalAccuracyDisplay.textContent = `${formatPercent(summary.accuracy)} (命中: ${summary.hitCount}, 漏选: ${summary.missCount}, 误报: ${summary.falseAlarmCount})`;
+        if (finalTrainingFeedback) {
+            finalTrainingFeedback.textContent = buildTrainingFeedback(summary);
+        }
+        saveTrainingResult(finishedAt, durationMs, summary);
         
         // Render history list
         const historyList = document.getElementById('history-list');
@@ -300,6 +567,7 @@ document.addEventListener('DOMContentLoaded', () => {
             el.style.textAlign = 'center';
             el.style.position = 'relative';
             el.textContent = item.char;
+            el.title = `${item.classification || 'pending'}${item.targetStimulus ? ` / target: ${item.targetStimulus}` : ''}`;
             
             // Style based on result
             if (item.result === 'correct') {
@@ -339,7 +607,7 @@ document.addEventListener('DOMContentLoaded', () => {
         resetUI();
     }
 
-    function saveTrainingResult(finishedAt, durationMs, accuracyPercent) {
+    function saveTrainingResult(finishedAt, durationMs, summary) {
         if (sessionSaved) return;
         sessionSaved = true;
 
@@ -347,24 +615,8 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
-        const responseTimes = history
-            .map(item => item.rtMs)
-            .filter(value => Number.isFinite(value));
-        const meanRtMs = responseTimes.length > 0
-            ? Math.round(responseTimes.reduce((sum, value) => sum + value, 0) / responseTimes.length)
-            : null;
-        const trials = history.map((item, index) => ({
-            trialIndex: item.trialIndex ?? index,
-            stimulus: item.stimulus || item.char,
-            char: item.char,
-            isTarget: item.isTarget,
-            response: item.response,
-            userAction: item.userAction,
-            correct: item.correct,
-            result: item.result,
-            rtMs: item.rtMs,
-            elapsedMs: item.elapsedMs
-        }));
+        const finalSummary = summary || buildSummary();
+        const trials = history.map(serializeTrial);
 
         window.TrainingResults.saveSession({
             moduleId: GAME_ID,
@@ -374,16 +626,27 @@ document.addEventListener('DOMContentLoaded', () => {
             finishedAt,
             durationMs,
             score,
-            summary: {
-                nLevel: n,
-                totalTrials: totalRounds,
-                correctMatches,
-                wrongMatches,
-                missedMatches,
-                accuracy: accuracyPercent / 100,
-                meanRtMs
+            seed: sessionSeed,
+            contentVersion: CONTENT_VERSION,
+            summary: finalSummary,
+            trials,
+            metrics: {
+                score,
+                accuracy: formatPercent(finalSummary.accuracy),
+                hitRate: formatPercent(finalSummary.hitRate),
+                falseAlarmRate: formatPercent(finalSummary.falseAlarmRate),
+                meanRt: `${finalSummary.meanRtMs}ms`,
+                targetTrials: finalSummary.targetTrials,
+                misses: finalSummary.missCount,
+                falseAlarms: finalSummary.falseAlarmCount,
+                sessionType: finalSummary.sessionType,
+                isAdaptive: finalSummary.isAdaptive,
+                nProgression: finalSummary.nProgression,
+                loadAssessment: finalSummary.loadAssessment,
+                seed: sessionSeed,
+                contentVersion: CONTENT_VERSION
             },
-            trials
+            tags: ["memory", "working-memory", "updating", "n-back"]
         });
     }
 
@@ -393,6 +656,9 @@ document.addEventListener('DOMContentLoaded', () => {
         nLevelInput.disabled = false;
         speedInput.disabled = false;
         roundsInput.disabled = false;
+        charTypeInputs.forEach(input => {
+            input.disabled = false;
+        });
         startBtn.textContent = "开始训练";
         display.textContent = "?";
         feedback.textContent = "";
