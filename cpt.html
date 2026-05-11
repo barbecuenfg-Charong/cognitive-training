@@ -69,13 +69,21 @@
                             <span class="stat-value warning" id="result-fa">0</span>
                         </div>
                         <div class="result-stat">
+                            <span class="stat-label">正确抑制 (Correct Rejections)</span>
+                            <span class="stat-value" id="result-cr">0</span>
+                        </div>
+                        <div class="result-stat">
+                            <span class="stat-label">命中率 / 误报率</span>
+                            <span class="stat-value" id="result-rates">0% / 0%</span>
+                        </div>
+                        <div class="result-stat">
                             <span class="stat-label">平均反应时间</span>
                             <span class="stat-value" id="result-rt">0 ms</span>
                         </div>
                         <p class="feedback-text" id="feedback-text">保持专注！</p>
                     </div>
                     <div class="modal-footer">
-                        <button class="btn-primary" onclick="location.reload()">再试一次</button>
+                        <button class="btn-primary" onclick="location.reload()">重新开始本轮训练</button>
                         <a href="index.html" class="btn-secondary">返回主页</a>
                     </div>
                 </div>
@@ -83,6 +91,7 @@
         </div>
     </div>
     <script src="src/shared/training-results.js"></script>
+    <script src="src/shared/seeded-random.js"></script>
     <script src="cpt.js"></script>
 </body>
 </html>

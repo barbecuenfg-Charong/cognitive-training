@@ -66,6 +66,10 @@
         .arrow-btn:hover {
             background-color: #2c3e50;
         }
+        .result-detail {
+            line-height: 1.6;
+            color: #34495e;
+        }
     </style>
 </head>
 <body>
@@ -123,6 +127,7 @@
             &lt; &lt; <strong style="color:red">&gt;</strong> &lt; &lt;<br>
             您的任务是只看<b>红色</b>的那个箭头。</p>
             <p>如果红色箭头指向左，按左键；指向右，按右键。红色箭头的位置是随机的。</p>
+            <p>训练包含一致试次和不一致试次：不一致试次要求您抑制两侧干扰箭头，只依据红色目标箭头反应。</p>
             <p>每题作答窗口为 2 秒，超时计为未作答并自动进入下一题。</p>
         </div>
     </div>
@@ -133,10 +138,14 @@
             <h2>训练结束</h2>
             <p>最终得分: <span id="final-score"></span></p>
             <p>平均反应时间: <span id="avg-rt"></span> ms</p>
-            <button id="restart-btn" class="btn primary">确定</button>
+            <p>干扰成本（不一致 - 一致）: <span id="flanker-effect"></span></p>
+            <p>错误类型: <span id="error-breakdown"></span></p>
+            <p id="result-explanation" class="result-detail"></p>
+            <button id="restart-btn" class="btn primary">重新训练</button>
         </div>
     </div>
 
+    <script src="src/shared/seeded-random.js"></script>
     <script src="src/shared/training-results.js"></script>
     <script src="flanker.js"></script>
 </body>

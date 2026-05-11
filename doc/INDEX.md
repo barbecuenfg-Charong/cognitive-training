@@ -56,6 +56,8 @@
    33 个训练任务 TrainingResults 全量接入闭环记录：本轮 6 个补齐模块、33/33 结果、验收结论与剩余落地计划。
 22. [22-training-effect-alignment-and-module-optimization-20260511.md](22-training-effect-alignment-and-module-optimization-20260511.md)
    训练效果目标对齐与模块优化矩阵：从“可运行 demo”转向“范式正确、可训练、可复盘”的下一阶段优化基线。
+23. [23-attention-p0a-trainingization-report-20260511.md](23-attention-p0a-trainingization-report-20260511.md)
+   注意力 P0-A 训练化实施记录：Stroop、Flanker、CPT 的数据契约、范式指标、反馈闭环和验收结果。
 
 ## 源汇总镜像
 

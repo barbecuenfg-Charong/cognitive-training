@@ -58,6 +58,72 @@
         .voice-status.matched {
             color: #2ecc71;
         }
+        .stroop-feedback {
+            min-height: 28px;
+            text-align: center;
+            font-weight: 700;
+            color: #7f8c8d;
+            margin: 6px 0 12px;
+        }
+        .stroop-feedback.active {
+            color: #2c3e50;
+        }
+        .stroop-feedback.correct {
+            color: #27ae60;
+        }
+        .stroop-feedback.wrong {
+            color: #e74c3c;
+        }
+        .color-controls {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            gap: 10px;
+            margin: 16px auto 4px;
+            max-width: 560px;
+        }
+        .color-choice {
+            min-width: 68px;
+            min-height: 44px;
+            padding: 8px 14px;
+            border: 2px solid currentColor;
+            border-radius: 8px;
+            background: #fff;
+            font-weight: 800;
+            cursor: pointer;
+            transition: transform 0.12s ease, background 0.12s ease, opacity 0.12s ease;
+        }
+        .color-choice:hover:not(:disabled) {
+            background: #f8f9fa;
+            transform: translateY(-1px);
+        }
+        .color-choice:disabled {
+            cursor: not-allowed;
+            opacity: 0.45;
+        }
+        .stroop-result-list {
+            text-align: left;
+            margin: 16px auto;
+            max-width: 360px;
+        }
+        .stroop-result-list p {
+            display: flex;
+            justify-content: space-between;
+            gap: 16px;
+            margin: 8px 0;
+        }
+        .stroop-result-list span {
+            font-weight: 800;
+        }
+        .result-feedback {
+            text-align: left;
+            line-height: 1.6;
+            color: #2c3e50;
+            background: #f8f9fa;
+            border-radius: 8px;
+            padding: 12px;
+            margin: 12px 0 18px;
+        }
     </style>
 </head>
 <body>
@@ -88,6 +154,18 @@
                     <span class="label">用时:</span>
                     <span id="timer" class="value">00:00</span>
                 </div>
+                <div class="info-item">
+                    <span class="label">进度:</span>
+                    <span id="progress" class="value">0 / 16</span>
+                </div>
+                <div class="info-item">
+                    <span class="label">正确:</span>
+                    <span id="correct-count" class="value">0</span>
+                </div>
+                <div class="info-item">
+                    <span class="label">平均反应:</span>
+                    <span id="avg-rt-live" class="value">--</span>
+                </div>
             </div>
             <button id="start-btn" class="btn primary">生成并开始</button>
             <button id="stop-btn" class="btn danger" style="display:none; margin-left: 10px;">停止测试</button>
@@ -103,23 +181,45 @@
         </div>
 
         <div id="game-area" class="game-area" style="background: transparent; border: none; display: flex; align-items: center; justify-content: center; height: auto; min-height: 400px; padding-bottom: 0;">
-            <div id="stroop-grid" class="stroop-grid"></div>
+            <div>
+                <div id="stroop-feedback" class="stroop-feedback">准备开始</div>
+                <div id="stroop-grid" class="stroop-grid"></div>
+                <div id="manual-controls" class="color-controls" aria-label="手动颜色作答"></div>
+            </div>
         </div>
         
         <div class="rules-section">
             <h3>训练说明</h3>
-            <p>1. <b>手动模式</b>：这是一个自我挑战模式。开始计时后，请自己读出颜色，读完后点击“停止计时”。</p>
-            <p>2. <b>语音模式</b>：<span style="color:#e74c3c">推荐！</span>使用麦克风互动。</p>
+            <p>1. <b>手动模式</b>：系统会逐个高亮刺激，请点击该字的实际颜色，系统记录正确率和反应时。</p>
+            <p>2. <b>语音模式</b>：<span style="color:#e74c3c">推荐！</span>使用麦克风读出高亮字的实际颜色。</p>
             <ul style="color:#666; font-size: 0.9em; margin-top: 5px;">
                 <li>系统会<b>高亮</b>当前需要读的字。</li>
                 <li>请大声读出该字的<b>颜色</b>（如“红”、“绿色”）。</li>
-                <li>读对后会自动跳转到下一个字。</li>
+                <li>作答后会自动进入下一个字；语音模式读错可继续修正。</li>
                 <li>支持颜色：红、橙、黄、绿、青、蓝、紫。</li>
             </ul>
         </div>
     </div>
 
+    <div id="result-modal" class="modal hidden">
+        <div class="modal-content">
+            <h2>训练结束</h2>
+            <div class="stroop-result-list">
+                <p>最终得分 <span id="final-score"></span></p>
+                <p>正确率 <span id="result-accuracy"></span></p>
+                <p>平均反应 <span id="result-mean-rt"></span></p>
+                <p>一致平均反应 <span id="result-congruent-rt"></span></p>
+                <p>不一致平均反应 <span id="result-incongruent-rt"></span></p>
+                <p>干扰成本 <span id="result-stroop-effect"></span></p>
+                <p>错误/遗漏 <span id="result-error-count"></span></p>
+            </div>
+            <div id="result-feedback" class="result-feedback"></div>
+            <button id="restart-btn" class="btn primary">重新训练一轮</button>
+        </div>
+    </div>
+
     <script src="src/shared/training-results.js"></script>
+    <script src="src/shared/seeded-random.js"></script>
     <script src="stroop.js"></script>
 </body>
 </html>

@@ -44,6 +44,14 @@
         }
     }
 
+    function toOptionalString(value) {
+        if (value === null || typeof value === "undefined") {
+            return null;
+        }
+        const text = String(value).trim();
+        return text ? text : null;
+    }
+
     function normalizeTrials(value) {
         if (!Array.isArray(value)) {
             return [];
@@ -68,6 +76,8 @@
         const summary = toPlainObject(session.summary);
         const metrics = toPlainObject(session.metrics);
         const trials = normalizeTrials(session.trials);
+        const seed = toOptionalString(session.seed || summary.seed || metrics.seed || summary.sessionSeed || metrics.sessionSeed);
+        const contentVersion = toOptionalString(session.contentVersion || summary.contentVersion || metrics.contentVersion);
 
         return {
             schemaVersion: session.schemaVersion || SCHEMA_VERSION,
@@ -79,6 +89,8 @@
             finishedAt: finishedAt.toISOString(),
             durationMs,
             score: Number.isFinite(session.score) ? session.score : null,
+            seed,
+            contentVersion,
             summary,
             trials,
             metrics,
