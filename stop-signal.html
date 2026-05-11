@@ -39,6 +39,24 @@
             color: #7f8c8d;
             font-size: 0.95rem;
         }
+
+        .sst-result-note {
+            margin-top: 16px;
+            padding: 12px;
+            border-radius: 8px;
+            background: #f8f9fa;
+            color: #2c3e50;
+            line-height: 1.6;
+            text-align: left;
+        }
+
+        .sst-method-note {
+            margin-top: 10px;
+            color: #7f8c8d;
+            font-size: 0.9rem;
+            line-height: 1.5;
+            text-align: left;
+        }
     </style>
 </head>
 <body>
@@ -99,6 +117,8 @@
                             <span class="stat-label">估计SSRT</span>
                             <span class="stat-value warning" id="result-ssrt">0ms</span>
                         </div>
+                        <div class="sst-result-note" id="result-feedback"></div>
+                        <div class="sst-method-note" id="result-ssrt-method"></div>
                     </div>
                     <div class="modal-footer">
                         <button class="btn-primary" onclick="location.reload()">再试一次</button>
@@ -109,6 +129,7 @@
         </div>
     </div>
 
+    <script src="src/shared/seeded-random.js"></script>
     <script src="src/shared/training-results.js"></script>
     <script src="stop-signal.js"></script>
 </body>

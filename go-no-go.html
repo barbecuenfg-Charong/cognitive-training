@@ -76,7 +76,23 @@
                             <span class="stat-label">平均反应时</span>
                             <span class="stat-value" id="final-rt">0 ms</span>
                         </div>
+                        <div class="stat-item">
+                            <span class="stat-label">Commission 误按率</span>
+                            <span class="stat-value" id="commission-rate">0%</span>
+                            <span class="stat-desc">红色 No-Go 上误按的比例</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-label">Go 遗漏率</span>
+                            <span class="stat-value" id="omission-rate">0%</span>
+                            <span class="stat-desc">绿色 Go 未响应的比例</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-label">信号检测</span>
+                            <span class="stat-value" id="signal-detection">d' 0 / c 0</span>
+                            <span class="stat-desc">判别力 d' 与反应标准 c</span>
+                        </div>
                     </div>
+                    <p class="feedback-text" id="feedback-text">完成后显示分型建议。</p>
                     <div class="action-buttons">
                         <button class="restart-btn" onclick="location.reload()">再试一次</button>
                         <a href="index.html" class="home-btn">返回主页</a>
@@ -85,6 +101,7 @@
             </div>
         </div>
     </div>
+    <script src="src/shared/seeded-random.js"></script>
     <script src="src/shared/training-results.js"></script>
     <script src="go-no-go.js"></script>
 </body>

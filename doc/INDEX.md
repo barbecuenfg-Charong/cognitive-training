@@ -60,6 +60,8 @@
    注意力 P0-A 训练化实施记录：Stroop、Flanker、CPT 的数据契约、范式指标、反馈闭环和验收结果。
 24. [24-memory-p0b-trainingization-report-20260511.md](24-memory-p0b-trainingization-report-20260511.md)
    工作记忆 P0-B 训练化实施记录：N-Back、Corsi 的训练目标、数据契约、验证结果、残余风险和下一步。
+25. [25-inhibition-search-risk-p0c-p0d-report-20260511.md](25-inhibition-search-risk-p0c-p0d-report-20260511.md)
+   抑制控制、视觉搜索与风险决策 P0-C/P0-D 实施记录：Stop Signal、Go/No-Go、Schulte、BART 的范式指标、数据契约、反馈闭环和验收结果。
 
 ## 源汇总镜像
 

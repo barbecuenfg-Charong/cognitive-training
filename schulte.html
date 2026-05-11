@@ -39,6 +39,11 @@
         .schulte-cell.wrong {
             background: #ffcccc;
         }
+        .result-details {
+            margin: 12px 0;
+            text-align: left;
+            line-height: 1.6;
+        }
     </style>
 </head>
 <body>
@@ -101,10 +106,12 @@
         <div class="modal-content">
             <h2>挑战成功！</h2>
             <p>你的用时: <span id="final-time"></span></p>
+            <div id="result-details" class="result-details"></div>
             <button id="restart-btn" class="btn primary">确定</button>
         </div>
     </div>
 
+    <script src="src/shared/seeded-random.js"></script>
     <script src="src/shared/training-results.js"></script>
     <script src="schulte.js"></script>
 </body>

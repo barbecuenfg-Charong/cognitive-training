@@ -103,6 +103,15 @@
                             <span class="stat-label">爆炸率</span>
                             <span class="stat-value warning" id="result-pop-rate">0%</span>
                         </div>
+                        <div class="result-stat">
+                            <span class="stat-label">调整后平均充气</span>
+                            <span class="stat-value" id="result-adjusted-pumps">0</span>
+                        </div>
+                        <div class="result-stat">
+                            <span class="stat-label">风险趋势</span>
+                            <span class="stat-value" id="result-risk-trend">稳定</span>
+                        </div>
+                        <p class="feedback-text" id="result-advice"></p>
                     </div>
                     <div class="modal-footer">
                         <button class="btn-primary" onclick="location.reload()">再试一次</button>
@@ -113,6 +122,7 @@
         </div>
     </div>
 
+    <script src="src/shared/seeded-random.js"></script>
     <script src="src/shared/training-results.js"></script>
     <script src="balloon-risk.js"></script>
 </body>
