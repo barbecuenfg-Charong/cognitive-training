@@ -29,6 +29,42 @@ const PAGES = [
         requiredScripts: ["src/shared/training-results.js", "src/shared/seeded-random.js", "corsi.js"]
     },
     {
+        file: "task-switching.html",
+        requiredScripts: ["src/shared/training-results.js", "src/shared/seeded-random.js", "task-switching.js"]
+    },
+    {
+        file: "digit-span.html",
+        requiredScripts: ["src/shared/training-results.js", "src/shared/seeded-random.js", "digit-span.js"]
+    },
+    {
+        file: "mental-rotation.html",
+        requiredScripts: ["src/shared/training-results.js", "src/shared/seeded-random.js", "mental-rotation.js"]
+    },
+    {
+        file: "raven.html",
+        requiredScripts: ["src/shared/training-results.js", "src/shared/seeded-random.js", "raven.js"]
+    },
+    {
+        file: "wisconsin-card.html",
+        requiredScripts: ["src/shared/training-results.js", "src/shared/seeded-random.js", "wisconsin-card.js"]
+    },
+    {
+        file: "reversal-learning.html",
+        requiredScripts: ["src/shared/training-results.js", "src/shared/seeded-random.js", "reversal-learning.js"]
+    },
+    {
+        file: "iowa-gambling.html",
+        requiredScripts: ["src/shared/training-results.js", "src/shared/seeded-random.js", "iowa-gambling.js"]
+    },
+    {
+        file: "hanoi.html",
+        requiredScripts: ["src/shared/training-results.js", "hanoi.js"]
+    },
+    {
+        file: "daily-plan.html",
+        requiredScripts: ["src/shared/training-results.js", "daily-plan.js"]
+    },
+    {
         file: "report.html",
         requiredScripts: ["src/shared/training-results.js", "report.js"]
     },

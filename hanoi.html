@@ -64,6 +64,13 @@
         .peg.selected {
             outline: 2px solid #3498db;
         }
+
+        .hanoi-result-note {
+            margin: 14px 0 0;
+            color: #34495e;
+            line-height: 1.6;
+            text-align: left;
+        }
     </style>
 </head>
 <body>
@@ -74,6 +81,8 @@
             <div class="score-board">
                 <span><i class="fas fa-shoe-prints"></i> 步数: <span id="moves">0</span></span>
                 <span><i class="fas fa-bullseye"></i> 最优: <span id="optimal">0</span></span>
+                <span><i class="fas fa-undo"></i> 回退: <span id="backtrack-count">0</span></span>
+                <span><i class="fas fa-ban"></i> 非法: <span id="illegal-count">0</span></span>
                 <span><i class="fas fa-stopwatch"></i> 用时: <span id="time">0s</span></span>
             </div>
         </header>
@@ -88,7 +97,7 @@
                         <ul>
                             <li>先点击起始柱，再点击目标柱。</li>
                             <li>可调圆盘数量，圆盘越多难度越高。</li>
-                            <li>以更接近最优步数完成为目标。</li>
+                            <li>以更接近最优步数完成为目标，同时减少回退、非法移动和重复状态。</li>
                         </ul>
                     </div>
                     <button class="start-btn" onclick="startGame()">开始任务</button>
@@ -123,7 +132,7 @@
                     </div>
                     <div class="modal-body">
                         <div class="result-stat">
-                            <span class="stat-label">总步数</span>
+                            <span class="stat-label">实际步数</span>
                             <span class="stat-value highlight" id="result-moves">0</span>
                         </div>
                         <div class="result-stat">
@@ -131,9 +140,34 @@
                             <span class="stat-value" id="result-optimal">0</span>
                         </div>
                         <div class="result-stat">
+                            <span class="stat-label">超额步数</span>
+                            <span class="stat-value warning" id="result-excess">0</span>
+                        </div>
+                        <div class="result-stat">
+                            <span class="stat-label">最终路径步数</span>
+                            <span class="stat-value" id="result-path-moves">0</span>
+                        </div>
+                        <div class="result-stat">
+                            <span class="stat-label">非法操作</span>
+                            <span class="stat-value" id="result-illegal">0</span>
+                        </div>
+                        <div class="result-stat">
+                            <span class="stat-label">回退/反向</span>
+                            <span class="stat-value" id="result-backtrack">0</span>
+                        </div>
+                        <div class="result-stat">
+                            <span class="stat-label">首次移动延迟</span>
+                            <span class="stat-value" id="result-first-latency">--</span>
+                        </div>
+                        <div class="result-stat">
+                            <span class="stat-label">重复/循环</span>
+                            <span class="stat-value" id="result-repeat">0/0</span>
+                        </div>
+                        <div class="result-stat">
                             <span class="stat-label">效率</span>
                             <span class="stat-value warning" id="result-efficiency">0%</span>
                         </div>
+                        <p class="hanoi-result-note" id="result-feedback"></p>
                     </div>
                     <div class="modal-footer">
                         <button class="btn-primary" onclick="location.reload()">再试一次</button>

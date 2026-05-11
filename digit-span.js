@@ -17,18 +17,32 @@ document.addEventListener('DOMContentLoaded', () => {
     const instructionText = document.getElementById('instruction-text');
     const roundIndicator = document.getElementById('round-indicator');
     const speedSelect = document.getElementById('speed-select');
-    const modeRadios = document.getElementsByName('mode');
+    const modeRadios = document.querySelectorAll('input[name="mode"]');
     const GAME_ID = 'digit-span';
     const GAME_NAME = '数字广度 (Digit Span)';
+    const CONTENT_VERSION = 'digit-span-training-p0a-seeded-v1';
+    const START_SPAN = 3;
+    const MIN_SPAN = 2;
+    const MAX_SPAN = 9;
+    const MAX_ATTEMPTS_PER_SPAN = 2;
+    const CORRECT_STREAK_TO_INCREASE = 2;
+    const FAILURE_STREAK_TO_DECREASE = MAX_ATTEMPTS_PER_SPAN;
 
     // Game State
     let state = {
         isPlaying: false,
-        currentSpan: 3,
+        currentSpan: START_SPAN,
+        startSpan: START_SPAN,
+        minAttemptedSpan: START_SPAN,
         trials: 0,
+        attemptsAtCurrentSpan: 0,
+        correctStreak: 0,
+        failureStreak: 0,
         maxSpan: 0,
+        maxAttemptedSpan: 0,
         score: 0,
         sequence: [],
+        sequenceId: '',
         userInput: [],
         mode: 'forward',
         speed: 1000
@@ -37,6 +51,10 @@ document.addEventListener('DOMContentLoaded', () => {
     let trialStartedAt = 0;
     let trialLog = [];
     let sessionSaved = false;
+    let sessionSeed = '';
+    let sequenceCounter = 0;
+    let terminationReason = 'not_started';
+    let adaptationEvents = [];
 
     // Global functions for HTML onclick access
     window.inputDigit = function(digit) {
@@ -80,17 +98,76 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
+    function fallbackHashString(value) {
+        const text = String(value || '');
+        let hash = 2166136261 >>> 0;
+        for (let i = 0; i < text.length; i++) {
+            hash ^= text.charCodeAt(i);
+            hash = Math.imul(hash, 16777619);
+        }
+        return hash >>> 0;
+    }
+
+    function fallbackMulberry32(seed) {
+        let stateValue = seed >>> 0;
+        return function next() {
+            stateValue = (stateValue + 0x6D2B79F5) >>> 0;
+            let t = stateValue;
+            t = Math.imul(t ^ (t >>> 15), t | 1);
+            t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+            return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+        };
+    }
+
+    function getUrlSeed() {
+        try {
+            const params = new URLSearchParams(window.location.search);
+            const seed = params.get('seed');
+            return seed && seed.trim() ? seed.trim() : null;
+        } catch (error) {
+            return null;
+        }
+    }
+
+    function createSessionSeed() {
+        const seeded = window.SeededRandom;
+        if (seeded && typeof seeded.createSessionSeed === 'function') {
+            return seeded.createSessionSeed(GAME_ID);
+        }
+        const urlSeed = getUrlSeed();
+        if (urlSeed) return urlSeed;
+        const randomToken = Math.floor(Math.random() * 1e9).toString(36);
+        return `${GAME_ID}-${Date.now().toString(36)}-${randomToken}`;
+    }
+
+    function createRng(seed) {
+        const seeded = window.SeededRandom;
+        if (seeded && typeof seeded.createRngFromSeed === 'function') {
+            return seeded.createRngFromSeed(seed);
+        }
+        return fallbackMulberry32(fallbackHashString(seed));
+    }
+
+    function randomDigit(rng) {
+        return Math.floor(rng() * 10);
+    }
+
+    function normalizeMode(mode) {
+        if (mode === 'backward' || mode === 'sorted') return mode;
+        return 'forward';
+    }
+
     function getSettings() {
         let mode = 'forward';
         for (const radio of modeRadios) {
             if (radio.checked) {
-                mode = radio.value;
+                mode = normalizeMode(radio.value);
                 break;
             }
         }
         return {
             mode: mode,
-            speed: parseInt(speedSelect.value)
+            speed: parseInt(speedSelect.value, 10) || 1000
         };
     }
 
@@ -99,22 +176,34 @@ document.addEventListener('DOMContentLoaded', () => {
         state.mode = settings.mode;
         state.speed = settings.speed;
         state.isPlaying = true;
-        state.currentSpan = 3;
+        state.currentSpan = START_SPAN;
+        state.startSpan = START_SPAN;
+        state.minAttemptedSpan = START_SPAN;
         state.trials = 0;
+        state.attemptsAtCurrentSpan = 0;
+        state.correctStreak = 0;
+        state.failureStreak = 0;
         state.maxSpan = 0;
+        state.maxAttemptedSpan = 0;
         state.score = 0;
         state.sequence = [];
+        state.sequenceId = '';
         state.userInput = [];
         sessionStartedAt = new Date();
         trialStartedAt = 0;
         trialLog = [];
         sessionSaved = false;
+        sessionSeed = createSessionSeed();
+        sequenceCounter = 0;
+        terminationReason = 'in_progress';
+        adaptationEvents = [];
 
         // UI Updates
+        resultModal.classList.add('hidden');
         startBtn.style.display = 'none';
         stopBtn.style.display = 'inline-block';
         scoreEl.textContent = '0';
-        currentLengthEl.textContent = '3';
+        currentLengthEl.textContent = String(START_SPAN);
         digitContent.textContent = '';
         inputArea.style.display = 'none';
         instructionText.style.display = 'none';
@@ -127,7 +216,12 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function stopGame() {
+        const finishedAt = new Date();
+        const durationMs = sessionStartedAt
+            ? Math.max(0, finishedAt.getTime() - sessionStartedAt.getTime())
+            : 0;
         state.isPlaying = false;
+        terminationReason = 'manual_stop';
         startBtn.style.display = 'inline-block';
         stopBtn.style.display = 'none';
         inputArea.style.display = 'none';
@@ -137,10 +231,15 @@ document.addEventListener('DOMContentLoaded', () => {
         // Re-enable settings
         speedSelect.disabled = false;
         modeRadios.forEach(r => r.disabled = false);
+
+        saveTrainingResult(finishedAt, durationMs);
     }
 
     function gameOver() {
         state.isPlaying = false;
+        if (terminationReason === 'in_progress') {
+            terminationReason = 'two_failed_attempts';
+        }
         const finishedAt = new Date();
         const durationMs = sessionStartedAt
             ? Math.max(0, finishedAt.getTime() - sessionStartedAt.getTime())
@@ -167,17 +266,150 @@ document.addEventListener('DOMContentLoaded', () => {
         resultModal.classList.remove('hidden');
     }
 
-    function saveTrainingResult(finishedAt, durationMs) {
-        if (sessionSaved) return;
-        sessionSaved = true;
+    function mean(values) {
+        const valid = values.filter(value => Number.isFinite(value));
+        if (valid.length === 0) return 0;
+        return valid.reduce((sum, value) => sum + value, 0) / valid.length;
+    }
 
-        if (!window.TrainingResults || typeof window.TrainingResults.saveSession !== 'function' || !sessionStartedAt) {
-            return;
+    function clampNumber(value, min, max) {
+        return Math.min(max, Math.max(min, value));
+    }
+
+    function buildDigitSpanPrescription(summary) {
+        const currentStart = clampNumber(summary.startingSpan || summary.startSpan || START_SPAN, MIN_SPAN, MAX_SPAN);
+        const stableSpan = clampNumber(summary.maxSuccessfulSpan || summary.maxSpan || currentStart, MIN_SPAN, MAX_SPAN);
+
+        if (summary.terminationReason === 'manual_stop' || summary.totalTrials === 0) {
+            return {
+                nextStartSpan: currentStart,
+                nextMode: summary.sequenceMode,
+                nextPrescriptionReason: '本轮手动停止或样本不足，下一轮先复用当前起始长度和模式完成有效阶梯。'
+            };
         }
 
+        if (summary.exactAccuracy >= 0.8 && summary.sequenceMode === 'forward' && stableSpan >= 6) {
+            return {
+                nextStartSpan: clampNumber(Math.max(START_SPAN, stableSpan - 1), MIN_SPAN, MAX_SPAN),
+                nextMode: 'backward',
+                nextPrescriptionReason: '正向广度已较稳定，下一轮切换倒背以增加工作记忆操作负荷。'
+            };
+        }
+
+        if (summary.exactAccuracy >= 0.8 && summary.sequenceMode === 'backward' && stableSpan >= 6) {
+            return {
+                nextStartSpan: clampNumber(Math.max(START_SPAN, stableSpan - 1), MIN_SPAN, MAX_SPAN),
+                nextMode: 'sorted',
+                nextPrescriptionReason: '倒背广度已较稳定，下一轮切换升序整理以训练短时保持后的重排能力。'
+            };
+        }
+
+        if (summary.exactAccuracy >= 0.75 && stableSpan >= summary.startingSpan) {
+            return {
+                nextStartSpan: clampNumber(stableSpan, MIN_SPAN, MAX_SPAN),
+                nextMode: summary.sequenceMode,
+                nextPrescriptionReason: '正确率达标，下一轮从本轮稳定达到的广度附近继续训练。'
+            };
+        }
+
+        if (summary.positionAccuracy < 0.6 || stableSpan <= summary.startingSpan) {
+            return {
+                nextStartSpan: clampNumber(Math.max(MIN_SPAN, summary.startingSpan - 1), MIN_SPAN, MAX_SPAN),
+                nextMode: 'forward',
+                nextPrescriptionReason: '位置正确率或最终广度偏低，下一轮降低起始负荷并优先稳定顺序回忆。'
+            };
+        }
+
+        return {
+            nextStartSpan: currentStart,
+            nextMode: summary.sequenceMode,
+            nextPrescriptionReason: '当前负荷基本合适，下一轮保持起始长度和模式巩固稳定性。'
+        };
+    }
+
+    function buildSummary() {
         const totalTrials = trialLog.length;
         const correctCount = trialLog.filter(trial => trial.correct).length;
         const accuracy = totalTrials > 0 ? correctCount / totalTrials : 0;
+        const exactAccuracy = mean(trialLog.map(trial => trial.exactAccuracy));
+        const positionAccuracy = mean(trialLog.map(trial => trial.positionAccuracy));
+        const responseDurations = trialLog.map(trial => trial.responseDurationMs);
+        const attemptedSpans = trialLog.map(trial => trial.span);
+        const spanProgression = trialLog.map(trial => ({
+            trialIndex: trial.index,
+            span: trial.span,
+            attempt: trial.attempt,
+            sequenceId: trial.sequenceId,
+            correct: trial.correct,
+            exactAccuracy: trial.exactAccuracy,
+            positionAccuracy: trial.positionAccuracy,
+            spanAfterTrial: trial.spanAfterTrial,
+            adaptationAction: trial.adaptationAction,
+            adaptationReason: trial.adaptationReason
+        }));
+        const maxAttemptedSpan = totalTrials > 0
+            ? trialLog.reduce((max, trial) => Math.max(max, trial.span), 0)
+            : state.maxAttemptedSpan;
+        const minSpan = attemptedSpans.length > 0 ? Math.min(...attemptedSpans) : state.currentSpan;
+        const finalSpan = state.currentSpan;
+        const summary = {
+            maxSpan: state.maxSpan,
+            maxSuccessfulSpan: state.maxSpan,
+            minSpan,
+            startingSpan: state.startSpan,
+            finalSpan,
+            maxAttemptedSpan,
+            totalTrials,
+            correctCount,
+            accuracy,
+            exactAccuracy,
+            positionAccuracy,
+            sequenceMode: state.mode,
+            spanProgression,
+            adaptationEvents: adaptationEvents.map(copyAdaptationEvent),
+            startSpan: state.startSpan,
+            currentSpan: state.currentSpan,
+            mode: state.mode,
+            score: state.score,
+            speed: state.speed,
+            speedMs: state.speed,
+            meanResponseDurationMs: Math.round(mean(responseDurations)),
+            terminationReason,
+            seed: sessionSeed,
+            contentVersion: CONTENT_VERSION
+        };
+
+        return {
+            ...summary,
+            ...buildDigitSpanPrescription(summary)
+        };
+    }
+
+    function copyTrial(trial) {
+        return {
+            ...trial,
+            sequence: [...trial.sequence],
+            targetSequence: [...trial.targetSequence],
+            expectedResponse: [...trial.expectedResponse],
+            response: [...trial.response],
+            userInput: [...trial.userInput],
+            adaptationEvent: trial.adaptationEvent ? copyAdaptationEvent(trial.adaptationEvent) : null
+        };
+    }
+
+    function copyAdaptationEvent(event) {
+        return { ...event };
+    }
+
+    function saveTrainingResult(finishedAt, durationMs) {
+        if (sessionSaved || !sessionStartedAt) return;
+        sessionSaved = true;
+
+        if (!window.TrainingResults || typeof window.TrainingResults.saveSession !== 'function') {
+            return;
+        }
+
+        const summary = buildSummary();
 
         window.TrainingResults.saveSession({
             moduleId: GAME_ID,
@@ -187,37 +419,55 @@ document.addEventListener('DOMContentLoaded', () => {
             finishedAt,
             durationMs,
             score: state.score,
-            summary: {
-                mode: state.mode,
-                maxSpan: state.maxSpan,
-                currentSpan: state.currentSpan,
-                totalTrials,
-                correctCount,
-                accuracy,
-                score: state.score,
-                speed: state.speed
-            },
-            trials: trialLog.map(trial => ({
-                ...trial,
-                sequence: [...trial.sequence],
-                userInput: [...trial.userInput]
-            })),
+            seed: sessionSeed,
+            contentVersion: CONTENT_VERSION,
+            summary,
+            trials: trialLog.map(copyTrial),
             metrics: {
-                maxSpan: state.maxSpan,
-                accuracy: `${Math.round(accuracy * 100)}%`,
+                startingSpan: summary.startingSpan,
+                startSpan: summary.startSpan,
+                minSpan: summary.minSpan,
+                maxSpan: summary.maxSpan,
+                maxSuccessfulSpan: summary.maxSuccessfulSpan,
+                finalSpan: summary.finalSpan,
+                maxAttemptedSpan: summary.maxAttemptedSpan,
+                mode: summary.mode,
+                totalTrials: summary.totalTrials,
+                correctCount: summary.correctCount,
+                accuracy: summary.accuracy,
+                accuracyPct: `${Math.round(summary.accuracy * 100)}%`,
+                exactAccuracy: summary.exactAccuracy,
+                exactAccuracyPct: `${Math.round(summary.exactAccuracy * 100)}%`,
+                positionAccuracy: summary.positionAccuracy,
+                positionAccuracyPct: `${Math.round(summary.positionAccuracy * 100)}%`,
+                sequenceMode: summary.sequenceMode,
+                spanProgression: summary.spanProgression,
+                adaptationEvents: summary.adaptationEvents,
+                nextStartSpan: summary.nextStartSpan,
+                nextMode: summary.nextMode,
+                nextPrescriptionReason: summary.nextPrescriptionReason,
                 score: state.score,
-                speed: `${state.speed}ms`
+                speed: `${state.speed}ms`,
+                seed: sessionSeed,
+                contentVersion: CONTENT_VERSION
             },
-            tags: ['memory', 'digit-span']
+            tags: ['memory', 'digit-span', summary.sequenceMode]
         });
     }
 
     function generateSequence(length) {
+        sequenceCounter += 1;
+        const attempt = state.attemptsAtCurrentSpan + 1;
+        const sequenceId = `${sessionSeed}:${CONTENT_VERSION}:${state.mode}:trial-${sequenceCounter}:span-${length}:attempt-${attempt}`;
+        const rng = createRng(sequenceId);
         const seq = [];
         for (let i = 0; i < length; i++) {
-            seq.push(Math.floor(Math.random() * 10));
+            seq.push(randomDigit(rng));
         }
-        return seq;
+        return {
+            sequence: seq,
+            sequenceId
+        };
     }
 
     function updateInputDisplay() {
@@ -228,12 +478,16 @@ document.addEventListener('DOMContentLoaded', () => {
     function nextRound() {
         if (!state.isPlaying) return;
 
-        state.sequence = generateSequence(state.currentSpan);
+        const generated = generateSequence(state.currentSpan);
+        state.sequence = generated.sequence;
+        state.sequenceId = generated.sequenceId;
         state.userInput = [];
+        state.maxAttemptedSpan = Math.max(state.maxAttemptedSpan, state.currentSpan);
+        state.minAttemptedSpan = Math.min(state.minAttemptedSpan, state.currentSpan);
         updateInputDisplay();
 
         currentLengthEl.textContent = state.currentSpan;
-        roundIndicator.textContent = `尝试 ${state.trials + 1}/2`;
+        roundIndicator.textContent = `阶梯：正确 ${state.correctStreak}/${CORRECT_STREAK_TO_INCREASE} · 失误 ${state.failureStreak}/${FAILURE_STREAK_TO_DECREASE}`;
         roundIndicator.style.display = 'block';
 
         displaySequence();
@@ -294,15 +548,59 @@ document.addEventListener('DOMContentLoaded', () => {
         digitContent.textContent = '?';
         inputArea.style.display = 'flex';
         instructionText.style.display = 'block';
-        instructionText.textContent = state.mode === 'forward' ? '请输入数字 (顺序)' : '请输入数字 (倒序)';
+        instructionText.textContent = getModePrompt();
         trialStartedAt = Date.now();
         
         // Highlight active input
         userInputDisplay.classList.add('active');
     }
 
+    function getTargetSequence() {
+        if (state.mode === 'backward') return [...state.sequence].reverse();
+        if (state.mode === 'sorted') return [...state.sequence].sort((a, b) => a - b);
+        return [...state.sequence];
+    }
+
+    function getModePrompt() {
+        if (state.mode === 'backward') return '请输入数字 (倒序)';
+        if (state.mode === 'sorted') return '请输入数字 (升序排序)';
+        return '请输入数字 (顺序)';
+    }
+
+    function calculatePositionAccuracy(response, target) {
+        if (target.length === 0) return 0;
+        let correctPositions = 0;
+        for (let i = 0; i < target.length; i++) {
+            if (response[i] === target[i]) {
+                correctPositions += 1;
+            }
+        }
+        return correctPositions / target.length;
+    }
+
+    function hasSameDigitMultiset(response, target) {
+        if (response.length !== target.length) return false;
+        const counts = new Map();
+        target.forEach(digit => counts.set(digit, (counts.get(digit) || 0) + 1));
+        for (const digit of response) {
+            const nextCount = (counts.get(digit) || 0) - 1;
+            if (nextCount < 0) return false;
+            counts.set(digit, nextCount);
+        }
+        return Array.from(counts.values()).every(count => count === 0);
+    }
+
+    function classifyError(response, target, isCorrect) {
+        if (isCorrect) return 'none';
+        if (response.length === 0) return 'no_response';
+        if (response.length < target.length) return 'omission';
+        if (response.length > target.length) return 'insertion';
+        if (hasSameDigitMultiset(response, target)) return 'order';
+        return calculatePositionAccuracy(response, target) > 0 ? 'mixed' : 'content';
+    }
+
     function checkAnswer() {
-        const target = state.mode === 'forward' ? state.sequence : [...state.sequence].reverse();
+        const target = getTargetSequence();
         const input = state.userInput;
         
         // We allow submitting even if length is different, but logic dictates it must be same length for correct answer
@@ -318,45 +616,158 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         }
 
-        recordTrial(isCorrect);
-        showFeedback(isCorrect);
+        const trial = recordTrial(isCorrect);
+        showFeedback(isCorrect, trial);
     }
 
     function recordTrial(isCorrect) {
         const now = Date.now();
         const startedMs = sessionStartedAt ? sessionStartedAt.getTime() : now;
-        trialLog.push({
+        const targetSequence = getTargetSequence();
+        const response = [...state.userInput];
+        const responseDurationMs = trialStartedAt ? Math.max(0, now - trialStartedAt) : 0;
+        const attempt = state.attemptsAtCurrentSpan + 1;
+        const positionAccuracy = calculatePositionAccuracy(response, targetSequence);
+        const trial = {
             index: trialLog.length,
+            trialIndex: trialLog.length,
+            sequenceId: state.sequenceId,
             span: state.currentSpan,
-            attempt: state.trials + 1,
+            sequenceLength: state.sequence.length,
+            attempt,
+            attemptInSpan: attempt,
             mode: state.mode,
+            sequenceMode: state.mode,
             sequence: [...state.sequence],
-            userInput: [...state.userInput],
+            targetSequence,
+            expectedResponse: [...targetSequence],
+            response,
+            userInput: response,
             correct: isCorrect,
-            rtMs: trialStartedAt ? Math.max(0, now - trialStartedAt) : 0,
+            exactAccuracy: isCorrect ? 1 : 0,
+            positionAccuracy,
+            errorType: classifyError(response, targetSequence, isCorrect),
+            rt: responseDurationMs,
+            rtMs: responseDurationMs,
+            responseDurationMs,
+            spanBeforeTrial: state.currentSpan,
+            spanAfterTrial: state.currentSpan,
+            attemptsAtSpanBeforeTrial: state.attemptsAtCurrentSpan,
+            correctStreakBeforeTrial: state.correctStreak,
+            failureStreakBeforeTrial: state.failureStreak,
+            correctStreakAfterTrial: state.correctStreak,
+            failureStreakAfterTrial: state.failureStreak,
+            failuresBeforeTrial: state.failureStreak,
+            failuresAfterTrial: state.failureStreak,
+            adaptationAction: 'pending',
+            adaptationReason: 'pending',
+            adaptationEvent: null,
+            terminalTrial: false,
             elapsedMs: Math.max(0, now - startedMs)
-        });
+        };
+        trialLog.push(trial);
+        return trial;
     }
 
-    function showFeedback(isCorrect) {
+    function recordAdaptationEvent(trial, action, reason, spanBefore, spanAfter, terminal) {
+        const event = {
+            index: adaptationEvents.length,
+            trialIndex: trial.trialIndex,
+            sequenceId: trial.sequenceId,
+            mode: state.mode,
+            sequenceMode: state.mode,
+            correct: trial.correct,
+            action,
+            reason,
+            spanBefore,
+            spanAfter,
+            correctStreak: state.correctStreak,
+            failureStreak: state.failureStreak,
+            terminal,
+            elapsedMs: trial.elapsedMs
+        };
+        adaptationEvents.push(event);
+        trial.spanAfterTrial = spanAfter;
+        trial.correctStreakAfterTrial = state.correctStreak;
+        trial.failureStreakAfterTrial = state.failureStreak;
+        trial.failuresAfterTrial = state.failureStreak;
+        trial.adaptationAction = action;
+        trial.adaptationReason = reason;
+        trial.adaptationEvent = copyAdaptationEvent(event);
+        trial.terminalTrial = terminal;
+        return event;
+    }
+
+    function applyStaircase(isCorrect, trial) {
+        const spanBefore = state.currentSpan;
+        let action = 'hold';
+        let reason = '';
+        let terminal = false;
+
+        state.attemptsAtCurrentSpan += 1;
+
+        if (isCorrect) {
+            state.score += spanBefore * 10;
+            state.maxSpan = Math.max(state.maxSpan, spanBefore);
+            state.correctStreak += 1;
+            state.failureStreak = 0;
+            state.trials = 0;
+
+            if (state.correctStreak >= CORRECT_STREAK_TO_INCREASE) {
+                const nextSpan = clampNumber(spanBefore + 1, MIN_SPAN, MAX_SPAN);
+                if (nextSpan > spanBefore) {
+                    state.currentSpan = nextSpan;
+                    action = 'increase';
+                    reason = 'consecutive_correct';
+                } else {
+                    action = 'hold';
+                    reason = 'max_span_reached';
+                }
+                state.correctStreak = 0;
+                state.failureStreak = 0;
+                state.trials = 0;
+                state.attemptsAtCurrentSpan = 0;
+            } else {
+                reason = 'awaiting_consecutive_correct';
+            }
+        } else {
+            state.failureStreak += 1;
+            state.correctStreak = 0;
+            state.trials = state.failureStreak;
+
+            if (state.failureStreak >= FAILURE_STREAK_TO_DECREASE) {
+                if (spanBefore > MIN_SPAN) {
+                    state.currentSpan = spanBefore - 1;
+                    action = 'decrease';
+                    reason = 'consecutive_failures';
+                    state.correctStreak = 0;
+                    state.failureStreak = 0;
+                    state.trials = 0;
+                    state.attemptsAtCurrentSpan = 0;
+                } else {
+                    action = 'terminate';
+                    reason = 'min_span_failed';
+                    terminal = true;
+                    terminationReason = reason;
+                }
+            } else {
+                reason = 'awaiting_consecutive_failure';
+            }
+        }
+
+        return recordAdaptationEvent(trial, action, reason, spanBefore, state.currentSpan, terminal);
+    }
+
+    function showFeedback(isCorrect, trial) {
+        const adaptationEvent = applyStaircase(isCorrect, trial);
         inputArea.style.display = 'none';
         instructionText.style.display = 'none';
+        userInputDisplay.classList.remove('active');
         
         if (isCorrect) {
             digitContent.textContent = '✔';
             digitContent.style.color = '#2ecc71';
-            
-            // Logic: Success
-            state.score += state.currentSpan * 10;
             scoreEl.textContent = state.score;
-            
-            // Update max span immediately on success
-            if (state.currentSpan > state.maxSpan) {
-                state.maxSpan = state.currentSpan;
-            }
-            
-            state.currentSpan++;
-            state.trials = 0; // Reset trials for next level
             
             setTimeout(() => {
                 if (!state.isPlaying) return;
@@ -367,21 +778,18 @@ document.addEventListener('DOMContentLoaded', () => {
             digitContent.textContent = '✘';
             digitContent.style.color = '#e74c3c';
             
-            const correctSeq = state.mode === 'forward' ? state.sequence.join(' ') : [...state.sequence].reverse().join(' ');
+            const correctSeq = getTargetSequence().join(' ');
             instructionText.style.display = 'block';
             instructionText.innerHTML = `<span style="color:#7f8c8d; font-size: 16px;">正确答案</span><br><span style="font-size: 24px; color: #2c3e50;">${correctSeq}</span>`;
-            
-            state.trials++;
             
             setTimeout(() => {
                 if (!state.isPlaying) return;
                 digitContent.style.color = '#2c3e50';
                 instructionText.style.display = 'none';
                 
-                if (state.trials >= 2) {
+                if (adaptationEvent.terminal) {
                     gameOver();
                 } else {
-                    // Retry same level
                     nextRound();
                 }
             }, 3000); // Longer time to see correct answer

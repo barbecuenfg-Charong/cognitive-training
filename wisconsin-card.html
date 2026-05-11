@@ -66,6 +66,39 @@
             font-weight: 600;
             color: #34495e;
         }
+
+        .wcst-feedback.correct {
+            color: #1e8449;
+        }
+
+        .wcst-feedback.error {
+            color: #c0392b;
+        }
+
+        .wcst-feedback.perseverative {
+            color: #b9770e;
+        }
+
+        .wcst-feedback.shift {
+            color: #7d3c98;
+        }
+
+        .wcst-result-feedback {
+            margin-top: 12px;
+            padding: 10px 12px;
+            border-left: 4px solid #3498db;
+            background: #f4f8fb;
+            color: #2c3e50;
+            line-height: 1.5;
+            text-align: left;
+        }
+
+        #result-seed {
+            max-width: 240px;
+            word-break: break-all;
+            text-align: right;
+            font-size: 0.82rem;
+        }
     </style>
 </head>
 <body>
@@ -124,9 +157,22 @@
                             <span class="stat-value" id="result-categories">0</span>
                         </div>
                         <div class="result-stat">
+                            <span class="stat-label">错误分布</span>
+                            <span class="stat-value warning" id="result-errors">0</span>
+                        </div>
+                        <div class="result-stat">
                             <span class="stat-label">持续性错误</span>
                             <span class="stat-value warning" id="result-persev">0</span>
                         </div>
+                        <div class="result-stat">
+                            <span class="stat-label">集合维持丢失</span>
+                            <span class="stat-value" id="result-set-losses">0</span>
+                        </div>
+                        <div class="result-stat">
+                            <span class="stat-label">Session Seed</span>
+                            <span class="stat-value" id="result-seed">-</span>
+                        </div>
+                        <p class="wcst-result-feedback" id="result-feedback"></p>
                     </div>
                     <div class="modal-footer">
                         <button class="btn-primary" onclick="location.reload()">再试一次</button>
@@ -137,6 +183,7 @@
         </div>
     </div>
 
+    <script src="src/shared/seeded-random.js"></script>
     <script src="src/shared/training-results.js"></script>
     <script src="wisconsin-card.js"></script>
 </body>

@@ -86,6 +86,9 @@
                     <label>
                         <input type="radio" name="mode" value="backward"> 逆向回忆 (更难)
                     </label>
+                    <label>
+                        <input type="checkbox" id="adaptive-mode" checked> 自适应 staircase
+                    </label>
                 </div>
                 <div class="number-setting">
                     <label for="block-count">方块数量:</label>
@@ -121,7 +124,7 @@
             <p>1. 屏幕上会出现若干蓝色方块。</p>
             <p>2. 方块会依次变黄闪烁。</p>
             <p>3. 闪烁结束后，请凭记忆按<b>相同顺序</b>（或逆向顺序）点击这些方块。</p>
-            <p>4. 成功后序列长度增加，失败则游戏结束。</p>
+            <p>4. 默认自适应训练会根据连续正确、错误类型和近期正确率调整长度、模式或方块数量；关闭后保留原挑战流程。</p>
         </div>
     </div>
 

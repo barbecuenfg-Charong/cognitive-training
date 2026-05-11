@@ -1,12 +1,26 @@
 const MODULE_ID = 'go-no-go';
-const CONTENT_VERSION = 'go-no-go-p0c-seeded-sdt-v2';
+const CONTENT_VERSION = 'go-no-go-p0c-seeded-sdt-adaptive-v3';
 
 const TOTAL_TRIALS = 50;
-const GO_PROBABILITY = 0.8;
-const STIMULUS_TIMEOUT = 1000; // Time window to respond
+const BLOCK_SIZE = 10;
+const ADAPTIVE_MODE = true;
+const INITIAL_NO_GO_RATIO = 0.2;
+const GO_PROBABILITY = 1 - INITIAL_NO_GO_RATIO;
+const INITIAL_STIMULUS_TIMEOUT = 1000; // Initial time window to respond
+const STIMULUS_TIMEOUT = INITIAL_STIMULUS_TIMEOUT;
 const FEEDBACK_DURATION = 300;
 const MIN_ISI = 800;
 const MAX_ISI = 1500;
+const MIN_NO_GO_RATIO = 0.12;
+const MAX_NO_GO_RATIO = 0.4;
+const NO_GO_RATIO_STEP = 0.04;
+const MIN_STIMULUS_DURATION = 650;
+const MAX_STIMULUS_DURATION = 1250;
+const STIMULUS_DURATION_STEP = 100;
+const MIN_ADAPTIVE_ISI = 550;
+const MAX_ADAPTIVE_ISI = 1900;
+const MIN_ISI_SPREAD = 350;
+const ISI_STEP = 120;
 
 let currentTrial = 0;
 let isGameActive = false;
@@ -18,6 +32,10 @@ let hasResponded = false;
 let sessionStartedAt = null;
 let sessionSeed = '';
 let hasSavedSession = false;
+let adaptiveState = null;
+let adaptationEvents = [];
+let blockPlans = [];
+let trialPlanRng = null;
 
 // DOM Elements
 const instructionOverlay = document.getElementById('instruction-overlay');
@@ -26,6 +44,9 @@ const stimulusCircle = document.getElementById('stimulus-circle');
 const resultModal = document.getElementById('result-modal');
 const accuracyDisplay = document.getElementById('accuracy');
 const avgRtDisplay = document.getElementById('avg-rt');
+const ratioProgressionDisplay = document.getElementById('ratio-progression');
+const speedProgressionDisplay = document.getElementById('speed-progression');
+const isiProgressionDisplay = document.getElementById('isi-progression');
 
 // Event Listener for Spacebar
 document.addEventListener('keydown', (e) => {
@@ -90,6 +111,154 @@ function createRng(seed) {
     return fallbackMulberry32(fallbackHashString(seed));
 }
 
+function clamp(value, min, max) {
+    return Math.min(max, Math.max(min, value));
+}
+
+function normalizeAdaptiveSettings(settings) {
+    const noGoRatio = roundMetric(clamp(settings.noGoRatio, MIN_NO_GO_RATIO, MAX_NO_GO_RATIO), 3);
+    const stimulusDurationMs = Math.round(clamp(
+        settings.stimulusDurationMs,
+        MIN_STIMULUS_DURATION,
+        MAX_STIMULUS_DURATION
+    ));
+    let isiMinMs = Math.round(clamp(
+        settings.isiMinMs,
+        MIN_ADAPTIVE_ISI,
+        MAX_ADAPTIVE_ISI - MIN_ISI_SPREAD
+    ));
+    let isiMaxMs = Math.round(clamp(
+        settings.isiMaxMs,
+        MIN_ADAPTIVE_ISI + MIN_ISI_SPREAD,
+        MAX_ADAPTIVE_ISI
+    ));
+
+    if (isiMaxMs < isiMinMs + MIN_ISI_SPREAD) {
+        isiMaxMs = Math.min(MAX_ADAPTIVE_ISI, isiMinMs + MIN_ISI_SPREAD);
+    }
+    if (isiMaxMs < isiMinMs + MIN_ISI_SPREAD) {
+        isiMinMs = Math.max(MIN_ADAPTIVE_ISI, isiMaxMs - MIN_ISI_SPREAD);
+    }
+
+    return {
+        noGoRatio,
+        goRatio: roundMetric(1 - noGoRatio, 3),
+        stimulusDurationMs,
+        isiMinMs,
+        isiMaxMs
+    };
+}
+
+function createInitialAdaptiveState() {
+    return normalizeAdaptiveSettings({
+        noGoRatio: INITIAL_NO_GO_RATIO,
+        stimulusDurationMs: STIMULUS_TIMEOUT,
+        isiMinMs: MIN_ISI,
+        isiMaxMs: MAX_ISI
+    });
+}
+
+function cloneAdaptiveSettings(settings) {
+    return normalizeAdaptiveSettings({ ...settings });
+}
+
+function shuffleWithRng(list, rng) {
+    if (window.SeededRandom && typeof window.SeededRandom.shuffleInPlace === 'function') {
+        return window.SeededRandom.shuffleInPlace(list, rng);
+    }
+
+    for (let i = list.length - 1; i > 0; i--) {
+        const j = Math.floor(rng() * (i + 1));
+        [list[i], list[j]] = [list[j], list[i]];
+    }
+    return list;
+}
+
+function initializeAdaptiveSession(seed) {
+    adaptiveState = createInitialAdaptiveState();
+    adaptationEvents = [];
+    blockPlans = [];
+    trialPlanRng = createRng(`${seed}:${CONTENT_VERSION}:adaptive-trial-plan`);
+}
+
+function plannedNoGoCountForBlock(trialCount, noGoRatio) {
+    if (trialCount <= 1) {
+        return noGoRatio >= 0.5 ? 1 : 0;
+    }
+    return Math.min(trialCount - 1, Math.max(1, Math.round(trialCount * noGoRatio)));
+}
+
+function appendAdaptiveBlock(targetTrials = trials) {
+    const remainingTrials = TOTAL_TRIALS - targetTrials.length;
+    if (remainingTrials <= 0) return;
+
+    if (!adaptiveState) {
+        adaptiveState = createInitialAdaptiveState();
+    }
+    if (!trialPlanRng) {
+        trialPlanRng = createRng(`${sessionSeed || MODULE_ID}:${CONTENT_VERSION}:adaptive-trial-plan:fallback`);
+    }
+
+    const blockIndex = blockPlans.length;
+    const trialCount = Math.min(BLOCK_SIZE, remainingTrials);
+    const settings = cloneAdaptiveSettings(adaptiveState);
+    const noGoCount = plannedNoGoCountForBlock(trialCount, settings.noGoRatio);
+    const goCount = trialCount - noGoCount;
+    const plannedTypes = [];
+
+    for (let i = 0; i < goCount; i++) plannedTypes.push('go');
+    for (let i = 0; i < noGoCount; i++) plannedTypes.push('nogo');
+    shuffleWithRng(plannedTypes, trialPlanRng);
+
+    const fromTrial = targetTrials.length;
+    const plannedGoRatio = trialCount > 0 ? goCount / trialCount : 0;
+    const plannedNoGoRatio = trialCount > 0 ? noGoCount / trialCount : 0;
+    const generatedTrials = plannedTypes.map((plannedType, offset) => {
+        const isi = Math.floor(
+            trialPlanRng() * (settings.isiMaxMs - settings.isiMinMs + 1)
+        ) + settings.isiMinMs;
+        return {
+            trialIndex: fromTrial + offset,
+            blockIndex,
+            blockNumber: blockIndex + 1,
+            withinBlockIndex: offset,
+            plannedType,
+            type: plannedType,
+            stimulus: plannedType === 'go' ? 'greenCircle' : 'redCircle',
+            isi,
+            isiMinMs: settings.isiMinMs,
+            isiMaxMs: settings.isiMaxMs,
+            stimulusDurationMs: settings.stimulusDurationMs,
+            responseWindowMs: settings.stimulusDurationMs,
+            targetGoRatio: settings.goRatio,
+            targetNoGoRatio: settings.noGoRatio,
+            plannedGoRatio: roundMetric(plannedGoRatio, 3),
+            plannedNoGoRatio: roundMetric(plannedNoGoRatio, 3),
+            adaptiveMode: ADAPTIVE_MODE
+        };
+    });
+
+    blockPlans.push({
+        blockIndex,
+        blockNumber: blockIndex + 1,
+        fromTrial,
+        toTrial: fromTrial + trialCount - 1,
+        trialCount,
+        plannedGoCount: goCount,
+        plannedNoGoCount: noGoCount,
+        plannedGoRatio: roundMetric(plannedGoRatio, 3),
+        plannedNoGoRatio: roundMetric(plannedNoGoRatio, 3),
+        targetGoRatio: settings.goRatio,
+        targetNoGoRatio: settings.noGoRatio,
+        stimulusDurationMs: settings.stimulusDurationMs,
+        isiMinMs: settings.isiMinMs,
+        isiMaxMs: settings.isiMaxMs,
+        meanPlannedIsiMs: average(generatedTrials.map((trial) => trial.isi))
+    });
+
+    targetTrials.push(...generatedTrials);
+}
+
 function startGame() {
     isGameActive = true;
     currentTrial = 0;
@@ -102,28 +271,30 @@ function startGame() {
     instructionOverlay.style.display = 'none';
     gameDisplay.style.display = 'flex';
     resultModal.style.display = 'none';
+    accuracyDisplay.textContent = '100%';
+    avgRtDisplay.textContent = '-- ms';
 
     setTimeout(runTrial, 1000);
 }
 
 function generateTrials(seed) {
-    const rng = createRng(`${seed}:${CONTENT_VERSION}:trial-plan`);
     const list = [];
-    for (let i = 0; i < TOTAL_TRIALS; i++) {
-        const plannedType = rng() < GO_PROBABILITY ? 'go' : 'nogo';
-        list.push({
-            trialIndex: i,
-            plannedType,
-            type: plannedType,
-            stimulus: plannedType === 'go' ? 'greenCircle' : 'redCircle',
-            isi: Math.floor(rng() * (MAX_ISI - MIN_ISI) + MIN_ISI)
-        });
-    }
+    initializeAdaptiveSession(seed);
+    appendAdaptiveBlock(list);
     return list;
 }
 
 function runTrial() {
     if (currentTrial >= TOTAL_TRIALS) {
+        endGame();
+        return;
+    }
+
+    if (currentTrial >= trials.length) {
+        appendAdaptiveBlock();
+    }
+
+    if (currentTrial >= trials.length) {
         endGame();
         return;
     }
@@ -148,7 +319,7 @@ function runTrial() {
         if (!hasResponded) {
             handleTimeout();
         }
-    }, STIMULUS_TIMEOUT);
+    }, trial.stimulusDurationMs);
 }
 
 function classifyTrial(plannedType, pressed) {
@@ -226,9 +397,22 @@ function recordResponse(trial, pressed, rt) {
 
     responses.push({
         trialIndex: currentTrial,
+        blockIndex: trial.blockIndex,
+        blockNumber: trial.blockNumber,
+        withinBlockIndex: trial.withinBlockIndex,
         plannedType,
         type: plannedType,
         stimulus: trial.stimulus,
+        adaptiveMode: trial.adaptiveMode,
+        targetGoRatio: trial.targetGoRatio,
+        targetNoGoRatio: trial.targetNoGoRatio,
+        plannedGoRatio: trial.plannedGoRatio,
+        plannedNoGoRatio: trial.plannedNoGoRatio,
+        stimulusDurationMs: trial.stimulusDurationMs,
+        responseWindowMs: trial.responseWindowMs,
+        isiMs: trial.isi,
+        isiMinMs: trial.isiMinMs,
+        isiMaxMs: trial.isiMaxMs,
         response: pressed ? 'press' : 'none',
         isGo: plannedType === 'go',
         isNoGo: plannedType === 'nogo',
@@ -241,6 +425,7 @@ function recordResponse(trial, pressed, rt) {
         timedOut: !pressed
     });
     updateLiveStats();
+    maybeAdaptAfterBlock();
 }
 
 function updateLiveStats() {
@@ -298,41 +483,16 @@ function buildSignalDetection(hitCount, goTrials, commissionCount, noGoTrials) {
     };
 }
 
-function buildFeedback(summary) {
-    if (summary.omissionRate >= 0.15 && summary.commissionErrorRate >= 0.2) {
-        return {
-            profile: '注意遗漏与冲动误按并存',
-            recommendation: '下一轮先放慢半拍确认颜色，保持注视中央，绿色再按、红色停手。'
-        };
-    }
-    if (summary.omissionRate >= 0.15 || summary.omissionCount >= 5) {
-        return {
-            profile: '遗漏型注意不足更突出',
-            recommendation: '下一轮重点提高警觉性，绿色出现后立即响应，避免等到刺激快消失。'
-        };
-    }
-    if (summary.commissionErrorRate >= 0.2 || summary.commissionCount >= 2) {
-        return {
-            profile: 'commission 冲动抑制不足更突出',
-            recommendation: '下一轮重点练抑制，看到刺激先确认是否为红色，红色时保持不按。'
-        };
-    }
-    return {
-        profile: '遗漏与冲动误按控制较均衡',
-        recommendation: '下一轮保持当前节奏，在不增加红色误按的前提下稳定绿色反应。'
-    };
-}
-
-function buildSummary() {
-    const totalTrials = responses.length;
-    const goTrials = responses.filter(r => r.isGo).length;
-    const noGoTrials = responses.filter(r => r.isNoGo).length;
-    const hitCount = responses.filter(r => r.classification === 'goHit').length;
-    const omissionCount = responses.filter(r => r.classification === 'goOmission').length;
-    const noGoCorrectCount = responses.filter(r => r.classification === 'noGoCorrect').length;
-    const commissionCount = responses.filter(r => r.classification === 'noGoCommission').length;
+function summarizeResponseSet(items) {
+    const totalTrials = items.length;
+    const goTrials = items.filter(r => r.isGo).length;
+    const noGoTrials = items.filter(r => r.isNoGo).length;
+    const hitCount = items.filter(r => r.classification === 'goHit').length;
+    const omissionCount = items.filter(r => r.classification === 'goOmission').length;
+    const noGoCorrectCount = items.filter(r => r.classification === 'noGoCorrect').length;
+    const commissionCount = items.filter(r => r.classification === 'noGoCommission').length;
     const correctCount = hitCount + noGoCorrectCount;
-    const hitRts = responses
+    const hitRts = items
         .filter(r => r.classification === 'goHit')
         .map(r => r.rtMs);
     const accuracy = totalTrials > 0 ? correctCount / totalTrials : 0;
@@ -340,12 +500,6 @@ function buildSummary() {
     const commissionErrorRate = noGoTrials > 0 ? commissionCount / noGoTrials : 0;
     const omissionRate = goTrials > 0 ? omissionCount / goTrials : 0;
     const signalDetection = buildSignalDetection(hitCount, goTrials, commissionCount, noGoTrials);
-    const feedback = buildFeedback({
-        omissionRate,
-        omissionCount,
-        commissionErrorRate,
-        commissionCount
-    });
 
     return {
         totalTrials,
@@ -355,6 +509,7 @@ function buildSummary() {
         omissionCount,
         noGoCorrectCount,
         commissionCount,
+        correctCount,
         accuracy,
         hitRate,
         commissionErrorRate,
@@ -362,9 +517,223 @@ function buildSummary() {
         meanRtMs: average(hitRts),
         dPrime: signalDetection.dPrime,
         criterion: signalDetection.criterion,
-        signalDetection,
+        signalDetection
+    };
+}
+
+function buildRatioProgression() {
+    return blockPlans.map((plan) => ({
+        blockNumber: plan.blockNumber,
+        targetGoRatio: plan.targetGoRatio,
+        targetNoGoRatio: plan.targetNoGoRatio,
+        plannedGoRatio: plan.plannedGoRatio,
+        plannedNoGoRatio: plan.plannedNoGoRatio,
+        plannedGoCount: plan.plannedGoCount,
+        plannedNoGoCount: plan.plannedNoGoCount
+    }));
+}
+
+function buildSpeedProgression() {
+    return blockPlans.map((plan) => ({
+        blockNumber: plan.blockNumber,
+        stimulusDurationMs: plan.stimulusDurationMs,
+        isiMinMs: plan.isiMinMs,
+        isiMaxMs: plan.isiMaxMs,
+        meanPlannedIsiMs: plan.meanPlannedIsiMs
+    }));
+}
+
+function settingsChanged(before, after) {
+    return before.noGoRatio !== after.noGoRatio
+        || before.stimulusDurationMs !== after.stimulusDurationMs
+        || before.isiMinMs !== after.isiMinMs
+        || before.isiMaxMs !== after.isiMaxMs;
+}
+
+function determineAdaptiveSettings(blockSummary, beforeSettings) {
+    const next = { ...beforeSettings };
+    let decision = 'maintain';
+    let reason = '当前 block 表现处于训练区间，保持下一段负荷。';
+
+    if (blockSummary.commissionErrorRate >= 0.25) {
+        decision = 'ease-impulse-control';
+        reason = 'No-Go commission 偏高，先增加 No-Go 练习密度并放慢节奏。';
+        next.noGoRatio += NO_GO_RATIO_STEP;
+        next.stimulusDurationMs += STIMULUS_DURATION_STEP;
+        next.isiMinMs += ISI_STEP;
+        next.isiMaxMs += ISI_STEP;
+    } else if (blockSummary.omissionRate >= 0.2 || blockSummary.hitRate < 0.82) {
+        decision = 'ease-speed-load';
+        reason = 'Go hit 率偏低或遗漏偏高，说明当前速度负荷过高。';
+        next.stimulusDurationMs += STIMULUS_DURATION_STEP;
+        next.isiMinMs += ISI_STEP;
+        next.isiMaxMs += ISI_STEP;
+    } else if (
+        blockSummary.commissionErrorRate <= 0.1
+        && blockSummary.omissionRate <= 0.08
+        && blockSummary.hitRate >= 0.92
+        && blockSummary.dPrime !== null
+        && blockSummary.dPrime >= 2
+    ) {
+        decision = 'increase-inhibition-load';
+        reason = '抑制和 Go 反应都稳定，降低 No-Go 概率并加快节奏。';
+        next.noGoRatio -= NO_GO_RATIO_STEP;
+        next.stimulusDurationMs -= STIMULUS_DURATION_STEP;
+        next.isiMinMs -= ISI_STEP;
+        next.isiMaxMs -= ISI_STEP;
+    } else if (blockSummary.dPrime !== null && blockSummary.dPrime < 1) {
+        decision = 'stabilize-discrimination';
+        reason = "d' 偏低，先降低判别与节奏压力。";
+        next.noGoRatio += NO_GO_RATIO_STEP / 2;
+        next.stimulusDurationMs += STIMULUS_DURATION_STEP;
+        next.isiMinMs += Math.round(ISI_STEP / 2);
+        next.isiMaxMs += Math.round(ISI_STEP / 2);
+    }
+
+    const afterSettings = normalizeAdaptiveSettings(next);
+    return {
+        decision,
+        reason,
+        afterSettings,
+        changed: settingsChanged(beforeSettings, afterSettings)
+    };
+}
+
+function maybeAdaptAfterBlock() {
+    if (!ADAPTIVE_MODE || responses.length === 0) return;
+    if (responses.length % BLOCK_SIZE !== 0) return;
+
+    const completedBlockIndex = Math.floor(responses.length / BLOCK_SIZE) - 1;
+    if (adaptationEvents.some((event) => event.afterBlockIndex === completedBlockIndex)) return;
+
+    const blockResponses = responses.filter((response) => response.blockIndex === completedBlockIndex);
+    if (blockResponses.length === 0) return;
+
+    const beforeSettings = cloneAdaptiveSettings(adaptiveState || createInitialAdaptiveState());
+    const blockSummary = summarizeResponseSet(blockResponses);
+    const decision = determineAdaptiveSettings(blockSummary, beforeSettings);
+    adaptiveState = decision.afterSettings;
+
+    adaptationEvents.push({
+        eventIndex: adaptationEvents.length,
+        afterBlockIndex: completedBlockIndex,
+        afterBlockNumber: completedBlockIndex + 1,
+        nextBlockNumber: completedBlockIndex + 2,
+        triggerTrialCount: responses.length,
+        decision: decision.decision,
+        reason: decision.reason,
+        changed: decision.changed,
+        beforeSettings,
+        afterSettings: decision.afterSettings,
+        blockMetrics: {
+            hitRate: roundMetric(blockSummary.hitRate, 3),
+            commissionErrorRate: roundMetric(blockSummary.commissionErrorRate, 3),
+            omissionRate: roundMetric(blockSummary.omissionRate, 3),
+            dPrime: blockSummary.dPrime,
+            criterion: blockSummary.criterion,
+            meanRtMs: blockSummary.meanRtMs
+        }
+    });
+}
+
+function buildBlockLevelSummary() {
+    return blockPlans.map((plan) => {
+        const blockResponses = responses.filter((response) => response.blockIndex === plan.blockIndex);
+        const performance = summarizeResponseSet(blockResponses);
+        const event = adaptationEvents.find((item) => item.afterBlockIndex === plan.blockIndex) || null;
+
+        return {
+            blockIndex: plan.blockIndex,
+            blockNumber: plan.blockNumber,
+            fromTrial: plan.fromTrial,
+            toTrial: plan.toTrial,
+            trialCount: plan.trialCount,
+            plannedGoCount: plan.plannedGoCount,
+            plannedNoGoCount: plan.plannedNoGoCount,
+            plannedGoRatio: plan.plannedGoRatio,
+            plannedNoGoRatio: plan.plannedNoGoRatio,
+            targetGoRatio: plan.targetGoRatio,
+            targetNoGoRatio: plan.targetNoGoRatio,
+            stimulusDurationMs: plan.stimulusDurationMs,
+            isiMinMs: plan.isiMinMs,
+            isiMaxMs: plan.isiMaxMs,
+            hitRate: roundMetric(performance.hitRate, 3),
+            commissionErrorRate: roundMetric(performance.commissionErrorRate, 3),
+            omissionRate: roundMetric(performance.omissionRate, 3),
+            dPrime: performance.dPrime,
+            criterion: performance.criterion,
+            meanRtMs: performance.meanRtMs,
+            adaptationDecision: event ? event.decision : 'none',
+            nextSettings: event ? event.afterSettings : null
+        };
+    });
+}
+
+function buildAdaptiveSummary() {
+    return {
+        adaptiveMode: ADAPTIVE_MODE,
+        blockSize: BLOCK_SIZE,
+        initialSettings: createInitialAdaptiveState(),
+        finalSettings: cloneAdaptiveSettings(adaptiveState || createInitialAdaptiveState()),
+        adaptationEvents: adaptationEvents.map((event) => ({ ...event })),
+        ratioProgression: buildRatioProgression(),
+        speedProgression: buildSpeedProgression(),
+        blockLevelSummary: buildBlockLevelSummary()
+    };
+}
+
+function formatPrescription(settings) {
+    return `下一轮处方：No-Go ${formatPercent(settings.noGoRatio)}，刺激 ${settings.stimulusDurationMs}ms，ISI ${settings.isiMinMs}-${settings.isiMaxMs}ms。`;
+}
+
+function buildFeedback(summary) {
+    const prescription = formatPrescription(summary.finalAdaptiveSettings || createInitialAdaptiveState());
+    const speedLoadHigh = summary.omissionRate >= 0.2 || summary.hitRate < 0.82;
+
+    if (speedLoadHigh) {
+        return {
+            profile: '速度负荷过高型',
+            recommendation: `本轮 Go 命中不足或遗漏偏高，下一轮先延长反应窗口并拉开 ISI，避免为了赶速度牺牲 Go 稳定性。${prescription}`
+        };
+    }
+    if (summary.commissionErrorRate >= 0.2 || summary.commissionCount >= 2) {
+        return {
+            profile: '冲动误按型',
+            recommendation: `红色 No-Go 上误按偏多，下一轮先增加停手练习密度并放慢节奏，按键前确认不是红色。${prescription}`
+        };
+    }
+    if (summary.omissionRate >= 0.15 || summary.omissionCount >= 5) {
+        return {
+            profile: '注意遗漏型',
+            recommendation: `绿色 Go 漏按偏多，下一轮保持中央注视，绿色出现即响应，先把 hit rate 拉回稳定区间。${prescription}`
+        };
+    }
+    return {
+        profile: '遗漏与冲动误按控制较均衡',
+        recommendation: `下一轮可维持或小幅增加抑制负荷，在不增加红色误按的前提下稳定绿色反应。${prescription}`
+    };
+}
+
+function buildSummary() {
+    const performance = summarizeResponseSet(responses);
+    const adaptiveSummary = buildAdaptiveSummary();
+    const feedback = buildFeedback({
+        ...performance,
+        finalAdaptiveSettings: adaptiveSummary.finalSettings
+    });
+
+    return {
+        ...performance,
         feedbackProfile: feedback.profile,
         recommendation: feedback.recommendation,
+        adaptiveMode: adaptiveSummary.adaptiveMode,
+        blockSize: adaptiveSummary.blockSize,
+        initialAdaptiveSettings: adaptiveSummary.initialSettings,
+        finalAdaptiveSettings: adaptiveSummary.finalSettings,
+        adaptationEvents: adaptiveSummary.adaptationEvents,
+        ratioProgression: adaptiveSummary.ratioProgression,
+        speedProgression: adaptiveSummary.speedProgression,
+        blockLevelSummary: adaptiveSummary.blockLevelSummary,
         seed: sessionSeed,
         contentVersion: CONTENT_VERSION
     };
@@ -372,6 +741,27 @@ function buildSummary() {
 
 function formatPercent(value) {
     return `${Math.round(value * 100)}%`;
+}
+
+function formatRatioProgression(progression) {
+    if (!progression || progression.length === 0) return '--';
+    return progression
+        .map((item) => `B${item.blockNumber} ${formatPercent(item.plannedNoGoRatio)}`)
+        .join(' → ');
+}
+
+function formatSpeedProgression(progression) {
+    if (!progression || progression.length === 0) return '--';
+    return progression
+        .map((item) => `B${item.blockNumber} ${item.stimulusDurationMs}ms`)
+        .join(' → ');
+}
+
+function formatIsiProgression(progression) {
+    if (!progression || progression.length === 0) return '--';
+    return progression
+        .map((item) => `B${item.blockNumber} ${item.isiMinMs}-${item.isiMaxMs}ms`)
+        .join(' → ');
 }
 
 function saveTrainingSession(finishedAt) {
@@ -394,9 +784,22 @@ function saveTrainingSession(finishedAt) {
         summary,
         trials: responses.map((trial) => ({
             trialIndex: trial.trialIndex,
+            blockIndex: trial.blockIndex,
+            blockNumber: trial.blockNumber,
+            withinBlockIndex: trial.withinBlockIndex,
             plannedType: trial.plannedType,
             type: trial.type,
             stimulus: trial.stimulus,
+            adaptiveMode: trial.adaptiveMode,
+            targetGoRatio: trial.targetGoRatio,
+            targetNoGoRatio: trial.targetNoGoRatio,
+            plannedGoRatio: trial.plannedGoRatio,
+            plannedNoGoRatio: trial.plannedNoGoRatio,
+            stimulusDurationMs: trial.stimulusDurationMs,
+            responseWindowMs: trial.responseWindowMs,
+            isiMs: trial.isiMs,
+            isiMinMs: trial.isiMinMs,
+            isiMaxMs: trial.isiMaxMs,
             response: trial.response,
             isGo: trial.isGo,
             isNoGo: trial.isNoGo,
@@ -415,7 +818,15 @@ function saveTrainingSession(finishedAt) {
             omissionRate: formatPercent(summary.omissionRate),
             dPrime: summary.dPrime,
             criterion: summary.criterion,
-            meanRt: `${summary.meanRtMs}ms`
+            meanRt: `${summary.meanRtMs}ms`,
+            adaptiveMode: summary.adaptiveMode,
+            finalNoGoRatio: formatPercent(summary.finalAdaptiveSettings.noGoRatio),
+            finalStimulusDuration: `${summary.finalAdaptiveSettings.stimulusDurationMs}ms`,
+            finalIsiRange: `${summary.finalAdaptiveSettings.isiMinMs}-${summary.finalAdaptiveSettings.isiMaxMs}ms`,
+            adaptationEvents: summary.adaptationEvents,
+            ratioProgression: summary.ratioProgression,
+            speedProgression: summary.speedProgression,
+            blockLevelSummary: summary.blockLevelSummary
         },
         tags: ["attention", "inhibition", "go-no-go"]
     });
@@ -449,6 +860,15 @@ function endGame() {
     document.getElementById('commission-rate').textContent = formatPercent(summary.commissionErrorRate);
     document.getElementById('omission-rate').textContent = formatPercent(summary.omissionRate);
     document.getElementById('signal-detection').textContent = `d' ${summary.dPrime} / c ${summary.criterion}`;
+    if (ratioProgressionDisplay) {
+        ratioProgressionDisplay.textContent = formatRatioProgression(summary.ratioProgression);
+    }
+    if (speedProgressionDisplay) {
+        speedProgressionDisplay.textContent = formatSpeedProgression(summary.speedProgression);
+    }
+    if (isiProgressionDisplay) {
+        isiProgressionDisplay.textContent = formatIsiProgression(summary.speedProgression);
+    }
     document.getElementById('feedback-text').textContent = `${summary.feedbackProfile}。${summary.recommendation}`;
 
     saveTrainingSession(new Date());

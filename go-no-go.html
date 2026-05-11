@@ -38,7 +38,7 @@
                         <ul>
                             <li>看到 <strong style="color: #2ecc71;">绿色圆圈</strong> (Go信号) → <strong>立即按空格键</strong></li>
                             <li>看到 <strong style="color: #e74c3c;">红色圆圈</strong> (No-Go信号) → <strong>不要按键</strong></li>
-                            <li>Go信号出现频率较高 (80%)，请保持专注。</li>
+                            <li>Go信号起始频率较高，系统会按表现调整 No-Go 比例和节奏。</li>
                         </ul>
                     </div>
 
@@ -90,6 +90,21 @@
                             <span class="stat-label">信号检测</span>
                             <span class="stat-value" id="signal-detection">d' 0 / c 0</span>
                             <span class="stat-desc">判别力 d' 与反应标准 c</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-label">No-Go 比例进程</span>
+                            <span class="stat-value" id="ratio-progression">--</span>
+                            <span class="stat-desc">各 block 实际计划比例</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-label">刺激时长进程</span>
+                            <span class="stat-value" id="speed-progression">--</span>
+                            <span class="stat-desc">各 block 反应窗口</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-label">ISI 进程</span>
+                            <span class="stat-value" id="isi-progression">--</span>
+                            <span class="stat-desc">各 block 间隔范围</span>
                         </div>
                     </div>
                     <p class="feedback-text" id="feedback-text">完成后显示分型建议。</p>

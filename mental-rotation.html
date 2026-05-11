@@ -18,6 +18,7 @@
                 <span><i class="fas fa-check-circle"></i> 正确: <span id="score">0</span></span>
                 <span><i class="fas fa-stopwatch"></i> 平均反应: <span id="avg-rt">0</span>ms</span>
                 <span><i class="fas fa-layer-group"></i> 轮次: <span id="round">1</span>/20</span>
+                <span><i class="fas fa-sliders-h"></i> 负荷: <span id="adaptive-status">自适应</span></span>
             </div>
         </header>
 
@@ -36,6 +37,10 @@
                             <li>请尽可能快且准确地做出判断。</li>
                         </ul>
                     </div>
+                    <label style="display: inline-flex; align-items: center; gap: 8px; margin: 12px 0;">
+                        <input type="checkbox" id="adaptive-mode" checked>
+                        自适应角度/镜像难度
+                    </label>
                     <button class="start-btn" onclick="startGame()">开始测试</button>
                 </div>
             </div>
@@ -73,7 +78,7 @@
                             <span class="stat-value" id="result-rt">0 ms</span>
                         </div>
                         <div class="result-stat">
-                            <span class="stat-label">旋转效应 (斜率)</span>
+                            <span class="stat-label">角度效应 (斜率)</span>
                             <span class="stat-value" id="result-slope">分析中...</span>
                         </div>
                         <p class="feedback-text" id="feedback-text">空间想象力很棒！</p>
@@ -86,6 +91,7 @@
             </div>
         </div>
     </div>
+    <script src="src/shared/seeded-random.js"></script>
     <script src="src/shared/training-results.js"></script>
     <script src="mental-rotation.js"></script>
 </body>

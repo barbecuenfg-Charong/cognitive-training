@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>今日训练计划 - 认知能力训练</title>
+    <link rel="stylesheet" href="style.css">
+    <style>
+        .plan-summary {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 12px;
+            margin-bottom: 18px;
+        }
+
+        .plan-stat {
+            background: #f8fafc;
+            border: 1px solid #e6edf5;
+            border-radius: 8px;
+            padding: 12px;
+        }
+
+        .plan-stat strong {
+            display: block;
+            color: #243447;
+            font-size: 1.35rem;
+            line-height: 1.2;
+        }
+
+        .plan-stat span {
+            color: #66788a;
+            font-size: 0.9rem;
+        }
+
+        .plan-list {
+            display: grid;
+            gap: 14px;
+        }
+
+        .plan-item {
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            padding: 16px;
+            background: #fff;
+        }
+
+        .plan-item-head {
+            display: flex;
+            justify-content: space-between;
+            gap: 12px;
+            align-items: flex-start;
+            margin-bottom: 10px;
+        }
+
+        .plan-item h2 {
+            margin: 0;
+            color: #243447;
+            font-size: 1.2rem;
+        }
+
+        .domain-pill {
+            flex: 0 0 auto;
+            background: #edf5fd;
+            color: #2f7db9;
+            border-radius: 999px;
+            padding: 4px 10px;
+            font-size: 0.85rem;
+            font-weight: 700;
+        }
+
+        .plan-detail {
+            color: #56687a;
+            margin: 8px 0;
+        }
+
+        .plan-reason {
+            background: #f8fafc;
+            border-left: 4px solid #3498db;
+            border-radius: 6px;
+            color: #40556a;
+            margin: 10px 0 14px;
+            padding: 10px 12px;
+        }
+
+        .plan-actions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            align-items: center;
+        }
+
+        .seed-note {
+            color: #718096;
+            font-size: 0.85rem;
+            overflow-wrap: anywhere;
+        }
+
+        @media (max-width: 640px) {
+            .plan-item-head {
+                flex-direction: column;
+            }
+
+            .domain-pill {
+                align-self: flex-start;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="game-container">
+        <header class="game-header">
+            <a href="index.html" class="back-btn"><span aria-hidden="true">←</span><span>返回主页</span></a>
+            <h1>今日训练计划</h1>
+            <div class="score-board">
+                <span id="plan-date">--</span>
+            </div>
+        </header>
+
+        <main class="game-area">
+            <section class="plan-summary" aria-label="训练计划摘要">
+                <div class="plan-stat">
+                    <strong id="plan-count">0</strong>
+                    <span>训练模块</span>
+                </div>
+                <div class="plan-stat">
+                    <strong id="plan-minutes">0</strong>
+                    <span>预计分钟</span>
+                </div>
+                <div class="plan-stat">
+                    <strong id="history-count">0</strong>
+                    <span>已有记录</span>
+                </div>
+            </section>
+
+            <div id="plan-list" class="plan-list" aria-live="polite"></div>
+        </main>
+    </div>
+
+    <script src="src/shared/training-results.js"></script>
+    <script src="daily-plan.js"></script>
+</body>
+</html>

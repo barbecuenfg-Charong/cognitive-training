@@ -361,6 +361,15 @@ export const sections = [
         icon: "fas fa-tools",
         tasks: [
             {
+                title: "今日训练计划",
+                tag: "每日 10-20 分钟",
+                desc: "根据最近训练记录轮换注意力、工作记忆、执行功能、推理/空间和决策项目，生成今日训练流。",
+                href: "daily-plan.html",
+                icon: "fas fa-calendar-check",
+                cardClass: "card-daily-plan",
+                status: "active"
+            },
+            {
                 title: "麦克风测试",
                 tag: "工具",
                 desc: "测试设备麦克风是否正常工作，确保语音交互功能可用。",

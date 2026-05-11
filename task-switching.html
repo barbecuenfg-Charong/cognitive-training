@@ -65,6 +65,12 @@
                         <span>右手食指</span>
                     </div>
 
+                    <div class="number-setting" style="display:flex; gap:8px; align-items:center; justify-content:center; margin: 10px 0;">
+                        <label for="adaptive-mode">自适应训练</label>
+                        <input type="checkbox" id="adaptive-mode" checked>
+                        <span style="color:#5d6d7e;">每 8 题调整切换比例 / 线索时间</span>
+                    </div>
+
                     <p id="practice-status" style="display:none; margin: 10px 0; color: #2ecc71; font-weight: 600;"></p>
                     <div id="prestart-actions" style="display:flex; gap:10px; justify-content:center; flex-wrap:wrap;">
                         <button class="start-btn" onclick="startPractice()">先练习 12 题</button>
@@ -128,6 +134,8 @@
                             <span class="stat-value" id="final-rt">0 ms</span>
                         </div>
                     </div>
+                    <p class="rl-result-note" id="final-feedback" style="margin: 14px 0 0; color: #34495e; line-height: 1.6;"></p>
+                    <p class="rl-result-note" id="final-adaptive-state" style="margin: 8px 0 0; color: #5d6d7e; line-height: 1.5;"></p>
                     <div class="action-buttons">
                         <button class="restart-btn" onclick="location.reload()">再试一次</button>
                         <a href="index.html" class="home-btn">返回主页</a>
@@ -136,6 +144,7 @@
             </div>
         </div>
     </div>
+    <script src="src/shared/seeded-random.js"></script>
     <script src="src/shared/training-results.js"></script>
     <script src="task-switching.js"></script>
 </body>

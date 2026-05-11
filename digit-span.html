@@ -148,6 +148,10 @@
                         <input type="radio" name="mode" value="backward"> 
                         <span class="radio-custom"></span> 逆向回忆 (倒背)
                     </label>
+                    <label class="radio-label">
+                        <input type="radio" name="mode" value="sorted">
+                        <span class="radio-custom"></span> 升序整理 (排序)
+                    </label>
                 </div>
                 <div class="setting-item">
                     <label for="speed-select">速度:</label>
@@ -203,9 +207,9 @@
             <ul style="text-align: left; margin-left: 20px; color: #7f8c8d;">
                 <li><strong>正向回忆</strong>: 数字 "5, 9, 1" -> 输入 "5, 9, 1"</li>
                 <li><strong>逆向回忆</strong>: 数字 "5, 9, 1" -> 输入 "1, 9, 5"</li>
-                <li>每一级长度有 <strong>2次机会</strong>。</li>
-                <li>只要有一次成功，长度增加一位。</li>
-                <li>两次都失败，挑战结束。</li>
+                <li><strong>升序整理</strong>: 数字 "5, 9, 1" -> 输入 "1, 5, 9"</li>
+                <li>自适应阶梯：连续 <strong>2次正确</strong> 增加一位，连续 <strong>2次失败</strong> 降低一位。</li>
+                <li>最低长度仍连续失败时，挑战结束。</li>
             </ul>
         </div>
     </div>
@@ -229,6 +233,7 @@
         </div>
     </div>
 
+    <script src="src/shared/seeded-random.js"></script>
     <script src="src/shared/training-results.js"></script>
     <script src="digit-span.js"></script>
 </body>

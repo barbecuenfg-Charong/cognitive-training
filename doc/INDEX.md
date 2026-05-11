@@ -64,6 +64,16 @@
    抑制控制、视觉搜索与风险决策 P0-C/P0-D 实施记录：Stop Signal、Go/No-Go、Schulte、BART 的范式指标、数据契约、反馈闭环和验收结果。
 26. [26-report-smoke-and-adaptive-prescription-20260511.md](26-report-smoke-and-adaptive-prescription-20260511.md)
    报告展示、Smoke 门禁与自适应处方实施记录：报告页指标优先级、关键页面静态验收、N-Back/Corsi 下一轮训练处方。
+27. [27-executive-memory-reasoning-trainingization-report-20260511.md](27-executive-memory-reasoning-trainingization-report-20260511.md)
+   执行功能、记忆与推理模块训练化实施记录：Task Switching、Digit Span、Mental Rotation、Raven、WCST、Reversal Learning 的范式指标、数据契约、反馈闭环和验收结果。
+28. [28-practical-training-loop-and-planning-report-20260511.md](28-practical-training-loop-and-planning-report-20260511.md)
+   实际训练闭环与规划能力补全实施记录：报告页训练反馈、每日训练计划、流程 smoke、Iowa 和 Hanoi 深化。
+29. [29-training-body-strengthening-nback-adaptive-20260511.md](29-training-body-strengthening-nback-adaptive-20260511.md)
+   训练本体强化实施记录：根据“不要固定 demo、要真实有效训练”的主线，为 N-Back 增加自适应 staircase、敏感性指标和负荷曲线门禁。
+30. [30-training-body-strengthening-adaptive-batch-20260511.md](30-training-body-strengthening-adaptive-batch-20260511.md)
+   训练本体再强化实施记录：Corsi、Digit Span、Task Switching、Go/No-Go、Mental Rotation、Raven 的自适应难度、参数化内容、诊断指标和流程门禁收口。
+31. [31-github-submit-runbook-20260512.md](31-github-submit-runbook-20260512.md)
+   GitHub 提交与推送经验记录：当前仓库口径、提交前门禁、网络失败判断顺序，以及普通 push 不通时的 GitHub API 备用路径。
 
 ## 源汇总镜像
 
@@ -85,6 +95,6 @@
 
 ## 文档版本
 
-- 版本：`v1.4`
-- 生成日期：`2026-05-10`
+- 版本：`v1.5`
+- 生成日期：`2026-05-11`
 - 适用范围：`glm5` 与 `gpt` 文档体系融合

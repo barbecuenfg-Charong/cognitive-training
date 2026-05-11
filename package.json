@@ -7,13 +7,14 @@
     "web": "node server.js",
     "start": "electron .",
     "package": "electron-packager . cognitive-training --platform=win32 --arch=x64 --out=dist --overwrite",
-    "check:syntax": "node --check server.js && node --check main.js && node --check preload.js && node --check task-switching.js && node --check mental-rotation.js && node --check nback.js && node --check corsi.js && node --check digit-span.js && node --check raven.js && node --check go-no-go.js && node --check stroop.js && node --check schulte.js && node --check flanker.js && node --check focus.js && node --check cpt.js && node --check mic-test.js && node --check base-rate.js && node --check bayes-update.js && node --check gambler-fallacy.js && node --check monty-hall.js && node --check report.js && node --check src/shared/training-results.js && node --check scripts/picky-player-audit.js && node --check scripts/check-sensitive-paths.js && node --check scripts/audit-fontawesome-loading.js && node --check scripts/smoke-pages.js",
+    "check:syntax": "node --check server.js && node --check main.js && node --check preload.js && node --check task-switching.js && node --check mental-rotation.js && node --check nback.js && node --check corsi.js && node --check digit-span.js && node --check raven.js && node --check wisconsin-card.js && node --check reversal-learning.js && node --check iowa-gambling.js && node --check hanoi.js && node --check daily-plan.js && node --check go-no-go.js && node --check stroop.js && node --check schulte.js && node --check flanker.js && node --check focus.js && node --check cpt.js && node --check mic-test.js && node --check base-rate.js && node --check bayes-update.js && node --check gambler-fallacy.js && node --check monty-hall.js && node --check report.js && node --check src/shared/training-results.js && node --check scripts/picky-player-audit.js && node --check scripts/check-sensitive-paths.js && node --check scripts/audit-fontawesome-loading.js && node --check scripts/smoke-pages.js && node --check scripts/flow-smoke.js",
     "check:sensitive-paths": "node scripts/check-sensitive-paths.js",
     "check:fontawesome-loading": "node scripts/audit-fontawesome-loading.js",
     "check:picky-player": "node scripts/picky-player-audit.js --check",
-    "check": "npm run check:syntax && npm run check:sensitive-paths && npm run check:fontawesome-loading && npm run check:picky-player",
+    "check": "npm run check:syntax && npm run check:sensitive-paths && npm run check:fontawesome-loading && npm run smoke:flows && npm run check:picky-player",
     "audit:picky-player": "node scripts/picky-player-audit.js --write",
-    "smoke:pages": "node scripts/smoke-pages.js"
+    "smoke:pages": "node scripts/smoke-pages.js",
+    "smoke:flows": "node scripts/flow-smoke.js"
   },
   "keywords": [
     "cognitive",

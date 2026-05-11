@@ -46,6 +46,12 @@
             font-weight: 600;
             color: #34495e;
         }
+
+        .rl-result-note {
+            margin: 14px 0 0;
+            color: #34495e;
+            line-height: 1.6;
+        }
     </style>
 </head>
 <body>
@@ -106,6 +112,15 @@
                             <span class="stat-label">反转后最优率</span>
                             <span class="stat-value warning" id="result-post">0%</span>
                         </div>
+                        <div class="result-stat">
+                            <span class="stat-label">适应试次</span>
+                            <span class="stat-value" id="result-adaptation">0</span>
+                        </div>
+                        <div class="result-stat">
+                            <span class="stat-label">策略倾向</span>
+                            <span class="stat-value" id="result-strategy">-</span>
+                        </div>
+                        <p class="rl-result-note" id="result-advice"></p>
                     </div>
                     <div class="modal-footer">
                         <button class="btn-primary" onclick="location.reload()">再试一次</button>
@@ -116,6 +131,7 @@
         </div>
     </div>
 
+    <script src="src/shared/seeded-random.js"></script>
     <script src="src/shared/training-results.js"></script>
     <script src="reversal-learning.js"></script>
 </body>

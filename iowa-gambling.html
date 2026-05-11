@@ -34,6 +34,19 @@
             transition: all 0.2s;
         }
 
+        .deck-btn span,
+        .deck-btn small {
+            display: block;
+        }
+
+        .deck-btn small {
+            margin-top: 4px;
+            color: #6b7b8a;
+            font-size: 0.78rem;
+            font-weight: 600;
+            line-height: 1.35;
+        }
+
         .deck-btn:hover {
             border-color: #3498db;
             transform: translateY(-2px);
@@ -52,6 +65,20 @@
 
         .igt-log p {
             margin: 6px 0;
+        }
+
+        .igt-result-feedback {
+            margin: 14px 0 0;
+            color: #34495e;
+            line-height: 1.6;
+            text-align: left;
+        }
+
+        .igt-seed {
+            margin-top: 10px;
+            color: #7f8c8d;
+            font-size: 0.85rem;
+            word-break: break-all;
         }
     </style>
 </head>
@@ -76,7 +103,8 @@
                         <h3>规则</h3>
                         <ul>
                             <li>每轮选择 1 个牌堆抽取。</li>
-                            <li>部分牌堆短期收益高但长期亏损大。</li>
+                            <li>A/B 每张收益较高（+100），但长期损失更大。</li>
+                            <li>C/D 每张收益较低（+50），但长期净收益更有利。</li>
                             <li>目标是在 60 轮后尽量保持较高余额。</li>
                         </ul>
                     </div>
@@ -87,10 +115,10 @@
             <div id="igt-panel" style="display:none;">
                 <div class="igt-stage">
                     <div class="deck-grid">
-                        <button class="deck-btn" data-deck="A">牌堆 A</button>
-                        <button class="deck-btn" data-deck="B">牌堆 B</button>
-                        <button class="deck-btn" data-deck="C">牌堆 C</button>
-                        <button class="deck-btn" data-deck="D">牌堆 D</button>
+                        <button class="deck-btn" data-deck="A"><span>牌堆 A</span><small>+100 / 长期不利</small></button>
+                        <button class="deck-btn" data-deck="B"><span>牌堆 B</span><small>+100 / 长期不利</small></button>
+                        <button class="deck-btn" data-deck="C"><span>牌堆 C</span><small>+50 / 长期有利</small></button>
+                        <button class="deck-btn" data-deck="D"><span>牌堆 D</span><small>+50 / 长期有利</small></button>
                     </div>
                     <p id="feedback" style="min-height:22px;font-weight:600;color:#34495e;"></p>
                     <div class="igt-log" id="log"></div>
@@ -115,6 +143,16 @@
                             <span class="stat-label">优势选择率</span>
                             <span class="stat-value warning" id="result-adv-rate">0%</span>
                         </div>
+                        <div class="result-stat">
+                            <span class="stat-label">优势 - 劣势选择</span>
+                            <span class="stat-value" id="result-choice-balance">0</span>
+                        </div>
+                        <div class="result-stat">
+                            <span class="stat-label">学习趋势</span>
+                            <span class="stat-value" id="result-learning-trend">-</span>
+                        </div>
+                        <p class="igt-result-feedback" id="result-feedback"></p>
+                        <p class="igt-seed">seed: <span id="result-seed"></span></p>
                     </div>
                     <div class="modal-footer">
                         <button class="btn-primary" onclick="location.reload()">再试一次</button>
@@ -125,6 +163,7 @@
         </div>
     </div>
 
+    <script src="src/shared/seeded-random.js"></script>
     <script src="src/shared/training-results.js"></script>
     <script src="iowa-gambling.js"></script>
 </body>

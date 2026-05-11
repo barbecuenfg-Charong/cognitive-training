@@ -90,6 +90,10 @@
                     <label for="total-rounds">轮次:</label>
                     <input type="number" id="total-rounds" min="5" max="100" value="20" step="5">
                 </div>
+                <div class="number-setting">
+                    <label for="adaptive-mode">自适应负荷:</label>
+                    <input type="checkbox" id="adaptive-mode" checked>
+                </div>
             </div>
             <div class="info-panel">
                 <div class="info-item">
@@ -99,6 +103,10 @@
                 <div class="info-item">
                     <span class="label">轮次:</span>
                     <span id="round" class="value">0/20</span>
+                </div>
+                <div class="info-item">
+                    <span class="label">当前N:</span>
+                    <span id="current-n" class="value">2</span>
                 </div>
             </div>
             <button id="start-btn" class="btn primary">开始训练</button>

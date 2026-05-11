@@ -95,6 +95,109 @@
             color: #7f8c8d;
             margin-top: 10px;
         }
+
+        .training-feedback {
+            border-top: 1px solid #eef2f7;
+            margin: 22px 0 24px;
+            padding-top: 18px;
+        }
+
+        .feedback-header {
+            display: flex;
+            align-items: baseline;
+            justify-content: space-between;
+            gap: 12px;
+            margin-bottom: 12px;
+        }
+
+        .feedback-header h2 {
+            color: #2c3e50;
+            font-size: 1.25rem;
+            margin: 0;
+        }
+
+        .feedback-window {
+            color: #7f8c8d;
+            font-size: 0.88rem;
+        }
+
+        .feedback-layout {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 12px;
+        }
+
+        .feedback-panel {
+            background: #ffffff;
+            border: 1px solid #e8eef5;
+            border-left: 4px solid #3498db;
+            border-radius: 8px;
+            padding: 14px;
+        }
+
+        .feedback-panel h3 {
+            color: #34495e;
+            font-size: 1rem;
+            margin: 0 0 8px;
+        }
+
+        .feedback-panel p {
+            color: #2c3e50;
+            line-height: 1.55;
+            margin: 0;
+        }
+
+        .feedback-panel.wide {
+            grid-column: 1 / -1;
+        }
+
+        .feedback-list {
+            list-style: none;
+            margin: 0;
+            padding: 0;
+        }
+
+        .feedback-list li {
+            border-top: 1px solid #eef2f7;
+            color: #2c3e50;
+            line-height: 1.45;
+            padding: 8px 0;
+        }
+
+        .feedback-list li:first-child {
+            border-top: 0;
+            padding-top: 0;
+        }
+
+        .domain-summary {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+
+        .domain-chip {
+            background: #f8f9fa;
+            border: 1px solid #e8eef5;
+            border-radius: 999px;
+            color: #34495e;
+            font-size: 0.86rem;
+            padding: 6px 10px;
+        }
+
+        .feedback-empty {
+            color: #7f8c8d;
+        }
+
+        @media (max-width: 720px) {
+            .feedback-header {
+                align-items: flex-start;
+                flex-direction: column;
+            }
+
+            .feedback-layout {
+                grid-template-columns: 1fr;
+            }
+        }
     </style>
 </head>
 <body>
@@ -133,6 +236,35 @@
                     <div class="value" id="avg-duration">0m</div>
                 </div>
             </div>
+
+            <section class="training-feedback" aria-labelledby="training-feedback-title">
+                <div class="feedback-header">
+                    <h2 id="training-feedback-title">训练反馈</h2>
+                    <span class="feedback-window" id="feedback-window">--</span>
+                </div>
+                <div class="feedback-layout">
+                    <section class="feedback-panel" aria-labelledby="feedback-trend-title">
+                        <h3 id="feedback-trend-title">最近训练趋势</h3>
+                        <p id="feedback-trend" class="feedback-empty">暂无可用训练记录。</p>
+                    </section>
+                    <section class="feedback-panel" aria-labelledby="feedback-domains-title">
+                        <h3 id="feedback-domains-title">能力域概览</h3>
+                        <div id="domain-summary" class="domain-summary"></div>
+                    </section>
+                    <section class="feedback-panel" aria-labelledby="feedback-weakness-title">
+                        <h3 id="feedback-weakness-title">弱项识别</h3>
+                        <ul id="weakness-list" class="feedback-list"></ul>
+                    </section>
+                    <section class="feedback-panel" aria-labelledby="feedback-next-title">
+                        <h3 id="feedback-next-title">下一轮建议</h3>
+                        <ul id="next-round-list" class="feedback-list"></ul>
+                    </section>
+                    <section class="feedback-panel wide" aria-labelledby="feedback-recent-title">
+                        <h3 id="feedback-recent-title">最近 5 次表现提示</h3>
+                        <ul id="recent-hints-list" class="feedback-list"></ul>
+                    </section>
+                </div>
+            </section>
 
             <div class="report-table-wrap">
                 <table class="report-table">
