@@ -11,8 +11,8 @@
 
 | 编号 | 模块名称 | 文件 | 状态 |
 |------|----------|------|------|
-| AUX-01 | 注意力测试 | [attention-test.md](attention-test.md) | 稳定 |
-| AUX-02 | 认知能力综合测试 | [cognitive-assessment.md](cognitive-assessment.md) | 稳定 |
+| AUX-01 | 注意力测试 | [attention-test.md](attention-test.md) | 规格储备/未开放 |
+| AUX-02 | 认知能力综合测试 | [cognitive-assessment.md](cognitive-assessment.md) | 规格储备/未开放 |
 
 ---
 
