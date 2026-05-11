@@ -20,19 +20,39 @@ document.addEventListener('DOMContentLoaded', () => {
     const resultMeanRtDisplay = document.getElementById('result-mean-rt');
     const resultCongruentRtDisplay = document.getElementById('result-congruent-rt');
     const resultIncongruentRtDisplay = document.getElementById('result-incongruent-rt');
+    const resultNeutralRtDisplay = document.getElementById('result-neutral-rt');
     const resultStroopEffectDisplay = document.getElementById('result-stroop-effect');
+    const resultConflictAdaptationDisplay = document.getElementById('result-conflict-adaptation');
     const resultErrorCountDisplay = document.getElementById('result-error-count');
+    const resultNextParametersDisplay = document.getElementById('result-next-parameters');
     const resultFeedbackDisplay = document.getElementById('result-feedback');
     const restartBtn = document.getElementById('restart-btn');
 
     const GAME_ID = "stroop";
     const GAME_NAME = "斯特鲁普测试";
-    const CONTENT_VERSION = "stroop-p0a-v1";
-    const CONGRUENT_RATIO = 0.35;
+    const CONTENT_VERSION = "stroop-conflict-v2";
+    const ADAPTATION_CONFIG = {
+        blockSize: 8,
+        neutralRatio: 0.25,
+        initialIncongruentRatio: 0.4,
+        minIncongruentRatio: 0.3,
+        maxIncongruentRatio: 0.65,
+        initialResponseWindowMs: 3600,
+        minResponseWindowMs: 1800,
+        maxResponseWindowMs: 5200,
+        initialCueDelayMs: 180,
+        minCueDelayMs: 70,
+        maxCueDelayMs: 520,
+        targetAccuracy: 0.86,
+        targetMeanRtMs: 1200
+    };
     let startTime = 0;
     let timerInterval = null;
+    let currentTrialTimeout = null;
+    let trialAdvanceTimer = null;
     let isPlaying = false;
     let isVoiceMode = false;
+    let isAdvancing = false;
     let recognition = null;
     let currentIndex = 0;
     let gridData = [];
@@ -44,6 +64,8 @@ document.addEventListener('DOMContentLoaded', () => {
     let sessionTrials = [];
     let currentTrialStartedAt = 0;
     let sessionSeed = null;
+    let sessionRng = null;
+    let adaptiveState = createInitialAdaptiveState();
     let responseButtons = [];
 
     // Electron detection
@@ -59,6 +81,7 @@ document.addEventListener('DOMContentLoaded', () => {
         { name: '蓝', hex: '#3498db' },
         { name: '紫', hex: '#9b59b6' }
     ];
+    const neutralWords = ['形', '点', '线', '块', '圆', '方', '星'];
 
     function average(values) {
         const validValues = values.filter((value) => Number.isFinite(value));
@@ -68,6 +91,40 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function ratio(correctCount, totalCount) {
         return totalCount > 0 ? correctCount / totalCount : null;
+    }
+
+    function clamp(value, min, max) {
+        return Math.min(max, Math.max(min, value));
+    }
+
+    function roundRatio(value) {
+        return Math.round(value * 100) / 100;
+    }
+
+    function createInitialAdaptiveState(overrides = {}) {
+        return {
+            level: 1,
+            blockSize: ADAPTATION_CONFIG.blockSize,
+            incongruentRatio: ADAPTATION_CONFIG.initialIncongruentRatio,
+            neutralRatio: ADAPTATION_CONFIG.neutralRatio,
+            responseWindowMs: ADAPTATION_CONFIG.initialResponseWindowMs,
+            cueDelayMs: ADAPTATION_CONFIG.initialCueDelayMs,
+            lastAdjustment: "baseline",
+            ...overrides
+        };
+    }
+
+    function snapshotAdaptiveState(state = adaptiveState, blockIndex = null) {
+        return {
+            level: state.level,
+            blockIndex,
+            blockSize: state.blockSize,
+            incongruentRatio: roundRatio(state.incongruentRatio),
+            neutralRatio: roundRatio(state.neutralRatio),
+            responseWindowMs: state.responseWindowMs,
+            cueDelayMs: state.cueDelayMs,
+            lastAdjustment: state.lastAdjustment
+        };
     }
 
     function formatPercent(value) {
@@ -142,31 +199,206 @@ document.addEventListener('DOMContentLoaded', () => {
         return list;
     }
 
-    function pickColor(rng) {
-        return colors[Math.floor(rng() * colors.length)];
+    function pickColor(rng, avoidName = null) {
+        const candidates = colors.filter((color) => color.name !== avoidName);
+        const pool = candidates.length ? candidates : colors;
+        return pool[Math.floor(rng() * pool.length)];
     }
 
-    function pickDifferentColor(wordColor, rng) {
-        let colorObj = pickColor(rng);
-        while (colorObj.name === wordColor.name) {
-            colorObj = pickColor(rng);
+    function pickDifferentColor(referenceColor, rng, avoidName = null) {
+        const candidates = colors.filter((color) => (
+            color.name !== referenceColor.name && color.name !== avoidName
+        ));
+        const pool = candidates.length
+            ? candidates
+            : colors.filter((color) => color.name !== referenceColor.name);
+        return pool[Math.floor(rng() * pool.length)];
+    }
+
+    function pickNeutralWord(rng, avoidWord = null) {
+        const candidates = neutralWords.filter((word) => word !== avoidWord);
+        const pool = candidates.length ? candidates : neutralWords;
+        return pool[Math.floor(rng() * pool.length)];
+    }
+
+    function calculateConditionCounts(totalTrials, parameters) {
+        if (totalTrials <= 0) {
+            return { congruent: 0, incongruent: 0, neutral: 0 };
         }
-        return colorObj;
+        if (totalTrials === 1) {
+            return { congruent: 0, incongruent: 1, neutral: 0 };
+        }
+        if (totalTrials === 2) {
+            return { congruent: 0, incongruent: 1, neutral: 1 };
+        }
+
+        const neutralCount = clamp(
+            Math.round(totalTrials * parameters.neutralRatio),
+            1,
+            totalTrials - 2
+        );
+        const maxIncongruent = totalTrials - neutralCount - 1;
+        const incongruentCount = clamp(
+            Math.round(totalTrials * parameters.incongruentRatio),
+            1,
+            maxIncongruent
+        );
+        const congruentCount = totalTrials - neutralCount - incongruentCount;
+
+        return {
+            congruent: congruentCount,
+            incongruent: incongruentCount,
+            neutral: neutralCount
+        };
     }
 
-    function buildConditionList(totalTrials, rng) {
-        const congruentCount = Math.max(1, Math.round(totalTrials * CONGRUENT_RATIO));
-        const incongruentCount = Math.max(1, totalTrials - congruentCount);
+    function scoreConditionSequence(conditions) {
+        let score = 0;
+        for (let i = 1; i < conditions.length; i += 1) {
+            if (conditions[i] === conditions[i - 1]) {
+                score += 2;
+            }
+            if (i > 1 && conditions[i] === conditions[i - 1] && conditions[i] === conditions[i - 2]) {
+                score += 12;
+            }
+        }
+        return score;
+    }
+
+    function buildConditionList(totalTrials, rng, parameters = adaptiveState) {
+        const counts = calculateConditionCounts(totalTrials, parameters);
         const conditions = [];
 
-        for (let i = 0; i < congruentCount; i += 1) {
+        for (let i = 0; i < counts.congruent; i += 1) {
             conditions.push("congruent");
         }
-        for (let i = 0; i < incongruentCount; i += 1) {
+        for (let i = 0; i < counts.incongruent; i += 1) {
             conditions.push("incongruent");
         }
+        for (let i = 0; i < counts.neutral; i += 1) {
+            conditions.push("neutral");
+        }
 
-        return shuffleInPlace(conditions.slice(0, totalTrials), rng);
+        let bestSequence = conditions.slice(0, totalTrials);
+        let bestScore = Number.POSITIVE_INFINITY;
+
+        for (let attempt = 0; attempt < 80; attempt += 1) {
+            const candidate = shuffleInPlace(conditions.slice(0, totalTrials), rng);
+            const score = scoreConditionSequence(candidate);
+            if (score < bestScore) {
+                bestSequence = candidate;
+                bestScore = score;
+            }
+            if (score === 0) break;
+        }
+
+        return bestSequence;
+    }
+
+    function createStimulus(condition, rng, previousStimulus = {}) {
+        const inkColor = pickColor(rng, previousStimulus.inkColor);
+
+        if (condition === "congruent") {
+            return {
+                word: inkColor.name,
+                inkColor
+            };
+        }
+
+        if (condition === "neutral") {
+            return {
+                word: pickNeutralWord(rng, previousStimulus.word),
+                inkColor
+            };
+        }
+
+        const wordColor = pickDifferentColor(inkColor, rng, previousStimulus.word);
+        return {
+            word: wordColor.name,
+            inkColor
+        };
+    }
+
+    function getBlockIndexForTrial(index, parameters = adaptiveState) {
+        return Math.floor(index / parameters.blockSize);
+    }
+
+    function applyStimulusToCell(cell, stimulus) {
+        cell.textContent = stimulus.word;
+        cell.style.color = stimulus.inkColor.hex;
+    }
+
+    function createGridItem(cell, index, condition, previousCondition, rng, parameters, previousStimulus = {}) {
+        const stimulus = createStimulus(condition, rng, previousStimulus);
+        const blockIndex = getBlockIndexForTrial(index, parameters);
+
+        applyStimulusToCell(cell, stimulus);
+
+        return {
+            element: cell,
+            condition,
+            word: stimulus.word,
+            inkColor: stimulus.inkColor.name,
+            inkColorHex: stimulus.inkColor.hex,
+            expectedResponse: stimulus.inkColor.name,
+            previousCondition,
+            blockIndex,
+            adaptiveState: snapshotAdaptiveState(parameters, blockIndex),
+            stimulusText: stimulus.word,
+            stimulusColor: stimulus.inkColor.name,
+            stimulusColorHex: stimulus.inkColor.hex,
+            correctResponse: stimulus.inkColor.name
+        };
+    }
+
+    function updatePendingTrialFromGridItem(index, item) {
+        const trial = sessionTrials[index];
+        if (!trial || trial.startedAt || trial.finishedAt) return;
+
+        trial.condition = item.condition;
+        trial.congruency = item.condition;
+        trial.word = item.word;
+        trial.inkColor = item.inkColor;
+        trial.inkColorHex = item.inkColorHex;
+        trial.expectedResponse = item.expectedResponse;
+        trial.previousCondition = item.previousCondition;
+        trial.blockIndex = item.blockIndex;
+        trial.adaptiveState = { ...item.adaptiveState };
+        trial.stimulusText = item.word;
+        trial.stimulusColor = item.inkColor;
+        trial.stimulusColorHex = item.inkColorHex;
+        trial.correctResponse = item.expectedResponse;
+    }
+
+    function rebalanceUpcomingTrials(startIndex) {
+        if (startIndex >= gridData.length) return;
+
+        const rng = sessionRng || createPreviewRng();
+        const remainingCount = gridData.length - startIndex;
+        const conditions = buildConditionList(remainingCount, rng, adaptiveState);
+        let previousCondition = startIndex > 0 ? gridData[startIndex - 1].condition : null;
+        let previousStimulus = startIndex > 0
+            ? { word: gridData[startIndex - 1].word, inkColor: gridData[startIndex - 1].inkColor }
+            : {};
+
+        for (let offset = 0; offset < remainingCount; offset += 1) {
+            const index = startIndex + offset;
+            const cell = gridData[index].element;
+            cell.classList.remove("active", "correct", "wrong");
+            const item = createGridItem(
+                cell,
+                index,
+                conditions[offset],
+                previousCondition,
+                rng,
+                adaptiveState,
+                previousStimulus
+            );
+            gridData[index] = item;
+            updatePendingTrialFromGridItem(index, item);
+            previousCondition = item.condition;
+            previousStimulus = { word: item.word, inkColor: item.inkColor };
+        }
     }
 
     function renderManualControls() {
@@ -192,7 +424,7 @@ document.addEventListener('DOMContentLoaded', () => {
             manualControls.style.display = isVoiceMode ? "none" : "flex";
         }
         responseButtons.forEach((button) => {
-            button.disabled = !isPlaying || isVoiceMode;
+            button.disabled = !isPlaying || isVoiceMode || isAdvancing;
         });
     }
 
@@ -201,6 +433,13 @@ document.addEventListener('DOMContentLoaded', () => {
             index,
             condition: item.condition,
             congruency: item.condition,
+            word: item.word,
+            inkColor: item.inkColor,
+            inkColorHex: item.inkColorHex,
+            expectedResponse: item.expectedResponse,
+            previousCondition: item.previousCondition,
+            blockIndex: item.blockIndex,
+            adaptiveState: { ...item.adaptiveState },
             stimulusText: item.stimulusText,
             stimulusColor: item.stimulusColor,
             stimulusColorHex: item.stimulusColorHex,
@@ -208,6 +447,7 @@ document.addEventListener('DOMContentLoaded', () => {
             response: null,
             correct: null,
             rtMs: null,
+            errorType: null,
             timedOut: false,
             inputMode,
             attemptCount: 0,
@@ -223,6 +463,10 @@ document.addEventListener('DOMContentLoaded', () => {
         return sessionTrials.map((trial) => ({
             index: trial.index,
             condition: trial.condition,
+            word: trial.word,
+            inkColor: trial.inkColor,
+            inkColorHex: trial.inkColorHex,
+            expectedResponse: trial.expectedResponse,
             stimulusText: trial.stimulusText,
             stimulusColor: trial.stimulusColor,
             stimulusColorHex: trial.stimulusColorHex,
@@ -230,6 +474,10 @@ document.addEventListener('DOMContentLoaded', () => {
             response: trial.response,
             correct: trial.correct,
             rtMs: trial.rtMs,
+            errorType: trial.errorType,
+            previousCondition: trial.previousCondition,
+            blockIndex: trial.blockIndex,
+            adaptiveState: trial.adaptiveState ? { ...trial.adaptiveState } : null,
             timedOut: trial.timedOut,
             inputMode: trial.inputMode,
             attemptCount: trial.attemptCount,
@@ -244,9 +492,36 @@ document.addEventListener('DOMContentLoaded', () => {
         currentTrialStartedAt = Date.now();
         const trial = sessionTrials[index];
         if (trial && !trial.startedAt) {
+            const blockIndex = getBlockIndexForTrial(index, adaptiveState);
+            trial.blockIndex = blockIndex;
+            trial.adaptiveState = snapshotAdaptiveState(adaptiveState, blockIndex);
             trial.startedAt = new Date(currentTrialStartedAt).toISOString();
             trial._startedAtMs = currentTrialStartedAt;
         }
+    }
+
+    function classifyErrorType(trial, response, options = {}) {
+        if (options.timedOut) {
+            return trial.hadError ? "omission_after_error" : "omission";
+        }
+
+        const normalized = String(response || "").trim();
+        if (!normalized) return "omission";
+
+        if (
+            trial.condition === "incongruent"
+            && trial.word
+            && normalized.includes(trial.word)
+        ) {
+            return "word_reading";
+        }
+
+        const namedColor = colors.find((color) => normalized.includes(color.name));
+        if (namedColor && namedColor.name !== trial.expectedResponse) {
+            return "wrong_color";
+        }
+
+        return "unrecognized_response";
     }
 
     function recordTrialResponse(index, response, correct, options = {}) {
@@ -258,6 +533,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const rtMs = startedAtMs > 0 ? Math.max(0, Math.round(now - startedAtMs)) : null;
         const complete = options.complete !== false;
         const timedOut = Boolean(options.timedOut);
+        const errorType = correct ? null : classifyErrorType(trial, response, { timedOut });
 
         trial.attemptCount += 1;
         trial.response = response;
@@ -265,15 +541,23 @@ document.addEventListener('DOMContentLoaded', () => {
 
         if (!correct) {
             trial.hadError = true;
+            trial.errorType = errorType;
             trial.wrongResponses.push({
                 response,
-                rtMs: trial.rtMs
+                rtMs: trial.rtMs,
+                errorType
             });
         }
 
         if (complete || correct || timedOut) {
             trial.correct = Boolean(correct);
             trial.timedOut = timedOut;
+            if (correct && trial.hadError) {
+                trial.errorType = "self_corrected";
+            }
+            if (!correct && !trial.errorType) {
+                trial.errorType = errorType || "wrong_color";
+            }
             trial.finishedAt = new Date(now).toISOString();
         }
 
@@ -290,6 +574,7 @@ document.addEventListener('DOMContentLoaded', () => {
             trial.correct = false;
             trial.timedOut = true;
             trial.hadError = true;
+            trial.errorType = trial.hadError && trial.attemptCount > 0 ? "omission_after_error" : "omission";
             trial.rtMs = Number.isFinite(trial.rtMs)
                 ? trial.rtMs
                 : (startedAtMs ? Math.max(0, Math.round(finishedAt.getTime() - startedAtMs)) : null);
@@ -301,24 +586,133 @@ document.addEventListener('DOMContentLoaded', () => {
         return sessionTrials.filter((trial) => trial.finishedAt || trial.correct !== null || trial.timedOut);
     }
 
+    function calculateConditionStats(trials, condition) {
+        const conditionTrials = trials.filter((trial) => trial.condition === condition);
+        const correctTrials = conditionTrials.filter((trial) => trial.correct === true);
+
+        return {
+            trialCount: conditionTrials.length,
+            correctCount: correctTrials.length,
+            accuracy: ratio(correctTrials.length, conditionTrials.length),
+            meanRtMs: average(correctTrials.map((trial) => trial.rtMs)),
+            errorCount: conditionTrials.filter((trial) => trial.correct === false || trial.timedOut || trial.hadError).length
+        };
+    }
+
+    function countErrorTypes(trials) {
+        return trials.reduce((counts, trial) => {
+            if (!trial.errorType) return counts;
+            counts[trial.errorType] = (counts[trial.errorType] || 0) + 1;
+            return counts;
+        }, {});
+    }
+
+    function calculateConflictAdaptation(trials) {
+        const incongruentAfterCongruent = trials.filter((trial) => (
+            trial.condition === "incongruent"
+            && trial.previousCondition === "congruent"
+        ));
+        const incongruentAfterIncongruent = trials.filter((trial) => (
+            trial.condition === "incongruent"
+            && trial.previousCondition === "incongruent"
+        ));
+        const afterCongruentCorrect = incongruentAfterCongruent.filter((trial) => trial.correct === true);
+        const afterIncongruentCorrect = incongruentAfterIncongruent.filter((trial) => trial.correct === true);
+        const afterCongruentRt = average(afterCongruentCorrect.map((trial) => trial.rtMs));
+        const afterIncongruentRt = average(afterIncongruentCorrect.map((trial) => trial.rtMs));
+        const afterCongruentAccuracy = ratio(afterCongruentCorrect.length, incongruentAfterCongruent.length);
+        const afterIncongruentAccuracy = ratio(afterIncongruentCorrect.length, incongruentAfterIncongruent.length);
+
+        return {
+            incongruentAfterCongruentTrials: incongruentAfterCongruent.length,
+            incongruentAfterIncongruentTrials: incongruentAfterIncongruent.length,
+            incongruentAfterCongruentMeanRtMs: afterCongruentRt,
+            incongruentAfterIncongruentMeanRtMs: afterIncongruentRt,
+            rtBenefitMs: Number.isFinite(afterCongruentRt) && Number.isFinite(afterIncongruentRt)
+                ? afterCongruentRt - afterIncongruentRt
+                : null,
+            incongruentAfterCongruentAccuracy: afterCongruentAccuracy,
+            incongruentAfterIncongruentAccuracy: afterIncongruentAccuracy,
+            accuracyBenefit: Number.isFinite(afterCongruentAccuracy) && Number.isFinite(afterIncongruentAccuracy)
+                ? afterIncongruentAccuracy - afterCongruentAccuracy
+                : null
+        };
+    }
+
+    function calculateBlockPerformance(trials) {
+        const completedTrials = trials.filter((trial) => trial.finishedAt || trial.correct !== null || trial.timedOut);
+        const correctTrials = completedTrials.filter((trial) => trial.correct === true);
+        return {
+            total: completedTrials.length,
+            accuracy: ratio(correctTrials.length, completedTrials.length),
+            meanRtMs: average(correctTrials.map((trial) => trial.rtMs)),
+            omissionRate: ratio(completedTrials.filter((trial) => trial.errorType === "omission" || trial.errorType === "omission_after_error").length, completedTrials.length)
+        };
+    }
+
+    function adjustAdaptiveState(currentState, performance) {
+        if (!performance.total) return currentState;
+
+        const nextState = { ...currentState };
+        const fastEnough = Number.isFinite(performance.meanRtMs)
+            && performance.meanRtMs <= ADAPTATION_CONFIG.targetMeanRtMs;
+        const accurateEnough = Number.isFinite(performance.accuracy)
+            && performance.accuracy >= ADAPTATION_CONFIG.targetAccuracy;
+        const tooManyErrors = Number.isFinite(performance.accuracy) && performance.accuracy < 0.72;
+        const tooManyOmissions = Number.isFinite(performance.omissionRate) && performance.omissionRate > 0.18;
+
+        if (accurateEnough && fastEnough && !tooManyOmissions) {
+            nextState.level = currentState.level + 1;
+            nextState.incongruentRatio = clamp(currentState.incongruentRatio + 0.05, ADAPTATION_CONFIG.minIncongruentRatio, ADAPTATION_CONFIG.maxIncongruentRatio);
+            nextState.responseWindowMs = clamp(currentState.responseWindowMs - 250, ADAPTATION_CONFIG.minResponseWindowMs, ADAPTATION_CONFIG.maxResponseWindowMs);
+            nextState.cueDelayMs = clamp(currentState.cueDelayMs - 25, ADAPTATION_CONFIG.minCueDelayMs, ADAPTATION_CONFIG.maxCueDelayMs);
+            nextState.lastAdjustment = "increase_load";
+        } else if (tooManyErrors || tooManyOmissions) {
+            nextState.level = Math.max(1, currentState.level - 1);
+            nextState.incongruentRatio = clamp(currentState.incongruentRatio - 0.05, ADAPTATION_CONFIG.minIncongruentRatio, ADAPTATION_CONFIG.maxIncongruentRatio);
+            nextState.responseWindowMs = clamp(currentState.responseWindowMs + 350, ADAPTATION_CONFIG.minResponseWindowMs, ADAPTATION_CONFIG.maxResponseWindowMs);
+            nextState.cueDelayMs = clamp(currentState.cueDelayMs + 50, ADAPTATION_CONFIG.minCueDelayMs, ADAPTATION_CONFIG.maxCueDelayMs);
+            nextState.lastAdjustment = "decrease_load";
+        } else {
+            nextState.lastAdjustment = "maintain_load";
+        }
+
+        nextState.incongruentRatio = roundRatio(nextState.incongruentRatio);
+        nextState.neutralRatio = roundRatio(nextState.neutralRatio);
+        return nextState;
+    }
+
+    function updateAdaptiveStateAfterTrial(completedIndex, nextIndex) {
+        if ((completedIndex + 1) % adaptiveState.blockSize !== 0) return;
+
+        const blockStart = Math.max(0, completedIndex - adaptiveState.blockSize + 1);
+        const blockTrials = sessionTrials.slice(blockStart, completedIndex + 1);
+        const blockPerformance = calculateBlockPerformance(blockTrials);
+        adaptiveState = adjustAdaptiveState(adaptiveState, blockPerformance);
+        rebalanceUpcomingTrials(nextIndex);
+    }
+
     function calculateSessionSummary() {
         const trials = sessionTrials.length ? sessionTrials : createSessionTrials(sessionInputMode);
         const totalTrials = trials.length;
         const completedTrials = trials.filter((trial) => trial.finishedAt || trial.correct !== null || trial.timedOut);
         const correctTrials = trials.filter((trial) => trial.correct === true);
-        const congruentTrials = trials.filter((trial) => trial.condition === "congruent");
-        const incongruentTrials = trials.filter((trial) => trial.condition === "incongruent");
+        const conditionMetrics = {
+            congruent: calculateConditionStats(trials, "congruent"),
+            incongruent: calculateConditionStats(trials, "incongruent"),
+            neutral: calculateConditionStats(trials, "neutral")
+        };
         const correctRtSamples = correctTrials.map((trial) => trial.rtMs);
-        const congruentMeanRtMs = average(congruentTrials
-            .filter((trial) => trial.correct === true)
-            .map((trial) => trial.rtMs));
-        const incongruentMeanRtMs = average(incongruentTrials
-            .filter((trial) => trial.correct === true)
-            .map((trial) => trial.rtMs));
+        const congruentMeanRtMs = conditionMetrics.congruent.meanRtMs;
+        const incongruentMeanRtMs = conditionMetrics.incongruent.meanRtMs;
+        const neutralMeanRtMs = conditionMetrics.neutral.meanRtMs;
         const stroopEffectMs = Number.isFinite(congruentMeanRtMs) && Number.isFinite(incongruentMeanRtMs)
             ? incongruentMeanRtMs - congruentMeanRtMs
             : null;
         const errorCount = trials.filter((trial) => trial.correct === false || trial.timedOut || trial.hadError).length;
+        const errorTypeCounts = countErrorTypes(trials);
+        const conflictAdaptation = calculateConflictAdaptation(trials);
+        const nextParameters = snapshotAdaptiveState(adaptiveState, null);
 
         return {
             totalTrials,
@@ -326,14 +720,21 @@ document.addEventListener('DOMContentLoaded', () => {
             correctCount: correctTrials.length,
             accuracy: ratio(correctTrials.length, totalTrials),
             meanRtMs: average(correctRtSamples),
+            conditionMetrics,
             congruentMeanRtMs,
             incongruentMeanRtMs,
+            neutralMeanRtMs,
             stroopEffectMs,
             errorCount,
-            congruentTrials: congruentTrials.length,
-            incongruentTrials: incongruentTrials.length,
-            congruentAccuracy: ratio(congruentTrials.filter((trial) => trial.correct === true).length, congruentTrials.length),
-            incongruentAccuracy: ratio(incongruentTrials.filter((trial) => trial.correct === true).length, incongruentTrials.length),
+            errorTypeCounts,
+            conflictAdaptation,
+            nextParameters,
+            congruentTrials: conditionMetrics.congruent.trialCount,
+            incongruentTrials: conditionMetrics.incongruent.trialCount,
+            neutralTrials: conditionMetrics.neutral.trialCount,
+            congruentAccuracy: conditionMetrics.congruent.accuracy,
+            incongruentAccuracy: conditionMetrics.incongruent.accuracy,
+            neutralAccuracy: conditionMetrics.neutral.accuracy,
             inputMode: sessionInputMode,
             gridSize: parseInt(gridSizeInput.value, 10) || null,
             completed: completedTrials.length === totalTrials,
@@ -353,7 +754,22 @@ document.addEventListener('DOMContentLoaded', () => {
             meanRT: formatMs(summary.meanRtMs),
             congruentMeanRT: formatMs(summary.congruentMeanRtMs),
             incongruentMeanRT: formatMs(summary.incongruentMeanRtMs),
+            neutralMeanRT: formatMs(summary.neutralMeanRtMs),
             stroopEffect: formatMs(summary.stroopEffectMs),
+            stroopEffectMs: summary.stroopEffectMs,
+            conditionAccuracy: {
+                congruent: formatPercent(summary.congruentAccuracy),
+                incongruent: formatPercent(summary.incongruentAccuracy),
+                neutral: formatPercent(summary.neutralAccuracy)
+            },
+            conditionMeanRT: {
+                congruent: formatMs(summary.congruentMeanRtMs),
+                incongruent: formatMs(summary.incongruentMeanRtMs),
+                neutral: formatMs(summary.neutralMeanRtMs)
+            },
+            conflictAdaptation: summary.conflictAdaptation,
+            errorTypeCounts: summary.errorTypeCounts,
+            nextParameters: summary.nextParameters,
             errorCount: summary.errorCount,
             inputMode: sessionInputMode,
             endReason,
@@ -403,6 +819,19 @@ document.addEventListener('DOMContentLoaded', () => {
         feedbackDisplay.className = type ? `stroop-feedback ${type}` : "stroop-feedback";
     }
 
+    function formatConflictAdaptation(conflictAdaptation) {
+        if (!conflictAdaptation || !Number.isFinite(conflictAdaptation.rtBenefitMs)) {
+            return "--";
+        }
+        const sign = conflictAdaptation.rtBenefitMs >= 0 ? "+" : "";
+        return `${sign}${conflictAdaptation.rtBenefitMs}ms`;
+    }
+
+    function formatNextParameters(parameters) {
+        if (!parameters) return "--";
+        return `L${parameters.level} / 冲突${Math.round(parameters.incongruentRatio * 100)}% / ${parameters.responseWindowMs}ms`;
+    }
+
     function buildPerformanceFeedback(summary, endReason) {
         const accuracyText = Number.isFinite(summary.accuracy)
             ? `正确率 ${formatPercent(summary.accuracy)}`
@@ -427,8 +856,11 @@ document.addEventListener('DOMContentLoaded', () => {
         const completionText = endReason === "completed"
             ? "本轮已完成全部刺激"
             : `本轮提前结束，未完成刺激已作为超时/遗漏记录`;
+        const adaptationText = Number.isFinite(summary.conflictAdaptation.rtBenefitMs)
+            ? `冲突后适应 ${formatConflictAdaptation(summary.conflictAdaptation)}`
+            : "冲突后适应样本不足";
 
-        return `${completionText}。${accuracyText}；${speedText}；${interferenceText}。可点击“重新训练一轮”再次开始。`;
+        return `${completionText}。${accuracyText}；${speedText}；${interferenceText}；${adaptationText}。可点击“重新训练一轮”再次开始。`;
     }
 
     function showSessionResult(summary, endReason) {
@@ -444,8 +876,11 @@ document.addEventListener('DOMContentLoaded', () => {
         if (resultMeanRtDisplay) resultMeanRtDisplay.textContent = formatMs(summary.meanRtMs);
         if (resultCongruentRtDisplay) resultCongruentRtDisplay.textContent = formatMs(summary.congruentMeanRtMs);
         if (resultIncongruentRtDisplay) resultIncongruentRtDisplay.textContent = formatMs(summary.incongruentMeanRtMs);
+        if (resultNeutralRtDisplay) resultNeutralRtDisplay.textContent = formatMs(summary.neutralMeanRtMs);
         if (resultStroopEffectDisplay) resultStroopEffectDisplay.textContent = formatMs(summary.stroopEffectMs);
+        if (resultConflictAdaptationDisplay) resultConflictAdaptationDisplay.textContent = formatConflictAdaptation(summary.conflictAdaptation);
         if (resultErrorCountDisplay) resultErrorCountDisplay.textContent = String(summary.errorCount);
+        if (resultNextParametersDisplay) resultNextParametersDisplay.textContent = formatNextParameters(summary.nextParameters);
         if (resultFeedbackDisplay) resultFeedbackDisplay.textContent = buildPerformanceFeedback(summary, endReason);
 
         resultModal.classList.remove("hidden");
@@ -557,9 +992,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function startGame() {
         sessionSeed = createSessionSeed();
-        generateGrid(createRng(sessionSeed));
+        sessionRng = createRng(sessionSeed);
+        generateGrid(sessionRng);
 
         currentIndex = 0;
+        isAdvancing = false;
         sessionInputMode = isVoiceMode ? "voice" : "manual";
         sessionSaved = false;
         sessionTrials = createSessionTrials(sessionInputMode);
@@ -584,9 +1021,12 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!isPlaying || !sessionStartedAt) return;
 
         const finishedAt = new Date();
+        clearCurrentTrialTimeout();
+        clearAdvanceTimer();
         finalizeIncompleteTrials(finishedAt, endReason);
         stopTimer();
         isPlaying = false;
+        isAdvancing = false;
         setControlState(false);
 
         stopAudioContext();
@@ -628,20 +1068,13 @@ document.addEventListener('DOMContentLoaded', () => {
         gridContainer.style.gridTemplateColumns = `repeat(${n}, 1fr)`;
 
         const totalCells = n * n;
-        const conditions = buildConditionList(totalCells, activeRng);
+        const conditions = buildConditionList(totalCells, activeRng, adaptiveState);
+        let previousCondition = null;
+        let previousStimulus = {};
 
         for (let i = 0; i < totalCells; i++) {
             const cell = document.createElement('div');
             cell.className = 'stroop-cell';
-
-            const wordColor = pickColor(activeRng);
-            const condition = conditions[i];
-            const inkColor = condition === "congruent"
-                ? wordColor
-                : pickDifferentColor(wordColor, activeRng);
-
-            cell.textContent = wordColor.name;
-            cell.style.color = inkColor.hex;
 
             const sizeMap = {
                 3: { font: '60px', height: '100px', width: '100px' },
@@ -665,14 +1098,18 @@ document.addEventListener('DOMContentLoaded', () => {
 
             gridContainer.appendChild(cell);
 
-            gridData.push({
-                element: cell,
-                stimulusText: wordColor.name,
-                stimulusColor: inkColor.name,
-                stimulusColorHex: inkColor.hex,
-                correctResponse: inkColor.name,
-                condition
-            });
+            const item = createGridItem(
+                cell,
+                i,
+                conditions[i],
+                previousCondition,
+                activeRng,
+                adaptiveState,
+                previousStimulus
+            );
+            gridData.push(item);
+            previousCondition = item.condition;
+            previousStimulus = { word: item.word, inkColor: item.inkColor };
         }
     }
 
@@ -694,13 +1131,55 @@ document.addEventListener('DOMContentLoaded', () => {
         timerInterval = null;
     }
 
+    function clearCurrentTrialTimeout() {
+        if (currentTrialTimeout) {
+            clearTimeout(currentTrialTimeout);
+            currentTrialTimeout = null;
+        }
+    }
+
+    function clearAdvanceTimer() {
+        if (trialAdvanceTimer) {
+            clearTimeout(trialAdvanceTimer);
+            trialAdvanceTimer = null;
+        }
+    }
+
+    function startResponseWindow(index) {
+        clearCurrentTrialTimeout();
+        const trial = sessionTrials[index];
+        if (!trial) return;
+
+        const windowMs = trial.adaptiveState && Number.isFinite(trial.adaptiveState.responseWindowMs)
+            ? trial.adaptiveState.responseWindowMs
+            : adaptiveState.responseWindowMs;
+
+        currentTrialTimeout = setTimeout(() => {
+            handleTrialTimeout(index);
+        }, windowMs);
+    }
+
+    function handleTrialTimeout(index) {
+        if (!isPlaying || isAdvancing || index !== currentIndex || index >= gridData.length) return;
+
+        recordTrialResponse(index, null, false, { complete: true, timedOut: true });
+        const cell = gridData[index].element;
+        cell.classList.remove('active');
+        cell.classList.add('wrong');
+        showFeedback("超时，进入下一题", "wrong");
+        advanceToNextTrial();
+    }
+
     function highlightCell(index) {
         gridData.forEach(d => d.element.classList.remove('active'));
 
         if (index < gridData.length) {
             const current = gridData[index];
+            isAdvancing = false;
+            setManualControlsState();
             current.element.classList.add('active');
             markCurrentTrialStart(index);
+            startResponseWindow(index);
             current.element.scrollIntoView({ behavior: 'smooth', block: 'center' });
             return;
         }
@@ -709,16 +1188,35 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function advanceToNextTrial() {
-        currentIndex += 1;
+        clearCurrentTrialTimeout();
+        const completedIndex = currentIndex;
+        const nextIndex = currentIndex + 1;
+        isAdvancing = true;
+        setManualControlsState();
         updateStats();
-        highlightCell(currentIndex);
+        updateAdaptiveStateAfterTrial(completedIndex, nextIndex);
+        currentIndex = nextIndex;
+
+        if (currentIndex >= gridData.length) {
+            isAdvancing = false;
+            highlightCell(currentIndex);
+            return;
+        }
+
+        const delayMs = adaptiveState.cueDelayMs;
+        clearAdvanceTimer();
+        trialAdvanceTimer = setTimeout(() => {
+            trialAdvanceTimer = null;
+            highlightCell(currentIndex);
+        }, delayMs);
     }
 
     function handleManualResponse(response) {
-        if (!isPlaying || isVoiceMode || currentIndex >= gridData.length) return;
+        if (!isPlaying || isVoiceMode || isAdvancing || currentIndex >= gridData.length) return;
 
-        const currentTarget = gridData[currentIndex].correctResponse;
+        const currentTarget = gridData[currentIndex].expectedResponse;
         const correct = response === currentTarget;
+        clearCurrentTrialTimeout();
         recordTrialResponse(currentIndex, response, correct, { complete: true });
 
         const cell = gridData[currentIndex].element;
@@ -827,9 +1325,9 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function handleVoiceInput(text) {
-        if (currentIndex >= gridData.length) return;
+        if (!isPlaying || isAdvancing || currentIndex >= gridData.length) return;
 
-        const currentTarget = gridData[currentIndex].correctResponse;
+        const currentTarget = gridData[currentIndex].expectedResponse;
         const cleanText = text.replace(/[.,?!。，？！]/g, '');
         const matched = cleanText.includes(currentTarget);
 
@@ -838,6 +1336,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const statusEl = voiceStatus;
 
         if (matched) {
+            clearCurrentTrialTimeout();
             statusEl.textContent = `识别成功: ${cleanText} (正确)`;
             statusEl.className = "voice-status matched";
 

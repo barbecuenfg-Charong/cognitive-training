@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>赌徒谬误任务 - 认知能力训练</title>
+    <title>随机性校准训练 - 认知能力训练</title>
     <link rel="stylesheet" href="style.css">
     <link rel="preconnect" href="https://cdnjs.cloudflare.com" crossorigin>
     <link rel="preload" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" as="style" onload="this.onload=null;this.rel='stylesheet'">
@@ -47,8 +47,26 @@
         .gf-feedback {
             margin-top: 16px;
             text-align: center;
-            min-height: 22px;
+            min-height: 48px;
             color: #34495e;
+        }
+
+        .gf-context-note {
+            text-align: center;
+            color: #5d6d7e;
+            margin: 6px 0;
+        }
+
+        .gf-probability {
+            text-align: center;
+            font-weight: 700;
+            color: #2c3e50;
+            margin: 10px 0 4px;
+        }
+
+        .gf-probability span {
+            display: inline-block;
+            min-width: 70px;
         }
     </style>
 </head>
@@ -56,25 +74,27 @@
     <div class="game-container">
         <header class="game-header">
             <a href="index.html" class="back-btn"><span aria-hidden="true">←</span><span>返回主页</span></a>
-            <h1>赌徒谬误任务</h1>
+            <h1>随机性校准训练</h1>
             <div class="score-board">
-                <span><i class="fas fa-list-ol"></i> 回合: <span id="round">0</span>/20</span>
+                <span><i class="fas fa-list-ol"></i> 回合: <span id="round">0</span>/<span id="round-total">24</span></span>
                 <span><i class="fas fa-check-circle"></i> 准确率: <span id="acc">0%</span></span>
-                <span><i class="fas fa-wave-square"></i> 连续后逆向预测率: <span id="anti-rate">0%</span></span>
+                <span><i class="fas fa-wave-square"></i> 反转预测率: <span id="reversal-rate">0%</span></span>
+                <span><i class="fas fa-percentage"></i> 基率使用率: <span id="base-use-rate">0%</span></span>
             </div>
         </header>
 
         <div class="game-area">
             <div class="instruction-overlay" id="start-screen">
                 <div class="instruction-content">
-                    <h2><i class="fas fa-coins"></i> 随机性认知训练</h2>
-                    <p>判断下一次抛硬币的结果，体验“过去结果不会改变下一次随机事件概率”。</p>
+                    <h2><i class="fas fa-coins"></i> 随机性直觉校准</h2>
+                    <p>根据最近序列和本轮基础概率预测下一次结果，训练对独立随机事件、连串和长期频率的判断。</p>
                     <div class="rule-box">
                         <h3>规则</h3>
                         <ul>
-                            <li>你会看到最近 6 次抛硬币结果。</li>
-                            <li>请选择你认为下一次会出现“正面(H)”还是“反面(T)”。</li>
-                            <li>系统统计你在长连串后是否倾向“反向预测”。</li>
+                            <li>你会看到一段最近结果序列。</li>
+                            <li>每轮会显示下一次出现 H / T 的基础概率。</li>
+                            <li>请选择你认为下一次会出现 H 还是 T。</li>
+                            <li>系统会记录连串后反转预测、顺势预测和忽略基率的情况。</li>
                         </ul>
                     </div>
                     <button class="start-btn" onclick="startGame()">开始任务</button>
@@ -82,7 +102,12 @@
             </div>
 
             <div id="gf-panel" style="display:none;">
-                <p style="text-align:center;">最近 6 次结果</p>
+                <p class="gf-context-note" id="trial-label">第 1 轮</p>
+                <p class="gf-probability" id="probability-info">
+                    <span>H: 50%</span>
+                    <span>T: 50%</span>
+                </p>
+                <p style="text-align:center;">最近结果序列</p>
                 <div class="gf-history" id="history"></div>
                 <div class="gf-choice">
                     <button class="btn primary" id="pick-h">预测正面 (H)</button>
@@ -102,8 +127,16 @@
                             <span class="stat-value highlight" id="result-acc">0%</span>
                         </div>
                         <div class="result-stat">
-                            <span class="stat-label">长连串后逆向预测率</span>
-                            <span class="stat-value warning" id="result-anti">0%</span>
+                            <span class="stat-label">反转预测率</span>
+                            <span class="stat-value warning" id="result-reversal">0%</span>
+                        </div>
+                        <div class="result-stat">
+                            <span class="stat-label">基率使用率</span>
+                            <span class="stat-value highlight" id="result-base-use">0%</span>
+                        </div>
+                        <div class="result-stat">
+                            <span class="stat-label">连串敏感度</span>
+                            <span class="stat-value" id="result-streak-sensitivity">0%</span>
                         </div>
                         <p class="feedback-text" id="result-text"></p>
                     </div>

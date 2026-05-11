@@ -1,8 +1,21 @@
 document.addEventListener("DOMContentLoaded", () => {
-    const CONTENT_VERSION = "flanker-v2-conflict-training";
-    const RESPONSE_WINDOW_MS = 2000;
+    const CONTENT_VERSION = "flanker-v3-balanced-adaptive-conflict";
+    const BASE_RESPONSE_WINDOW_MS = 2000;
+    const BASE_STIMULUS_DURATION_MS = 1200;
+    const MIN_RESPONSE_WINDOW_MS = 1100;
+    const MAX_RESPONSE_WINDOW_MS = 2400;
+    const MIN_STIMULUS_DURATION_MS = 500;
+    const MAX_STIMULUS_DURATION_MS = 1600;
     const INTER_TRIAL_INTERVAL_MS = 220;
     const STIMULUS_SIZE = 5;
+    const TARGET_POSITION = Math.floor(STIMULUS_SIZE / 2);
+    const BLOCK_SIZE = 10;
+    const CONDITIONS = ["congruent", "incongruent", "neutral"];
+    const CONDITION_LABELS = {
+        congruent: "一致",
+        incongruent: "不一致",
+        neutral: "中性"
+    };
 
     const startBtn = document.getElementById("start-btn");
     const pauseBtn = document.getElementById("pause-btn");
@@ -20,6 +33,11 @@ document.addEventListener("DOMContentLoaded", () => {
     const avgRtDisplay = document.getElementById("avg-rt");
     const flankerEffectDisplay = document.getElementById("flanker-effect");
     const errorBreakdownDisplay = document.getElementById("error-breakdown");
+    const conditionMetricsDisplay = document.getElementById("condition-metrics");
+    const captureErrorRateDisplay = document.getElementById("capture-error-rate");
+    const conflictAdaptationDisplay = document.getElementById("conflict-adaptation");
+    const rtVariabilityDisplay = document.getElementById("rt-variability");
+    const nextParametersDisplay = document.getElementById("next-parameters");
     const resultExplanationDisplay = document.getElementById("result-explanation");
     const restartBtn = document.getElementById("restart-btn");
 
@@ -37,8 +55,11 @@ document.addEventListener("DOMContentLoaded", () => {
     let reactionTimes = [];
     let trialPlan = [];
     let trialLog = [];
+    let adaptiveState = createInitialAdaptiveState(0);
+    let nextBlockIndex = 0;
     let rng = fallbackMulberry32(1);
     let trialTimeout = null;
+    let stimulusHideTimeout = null;
     let nextRoundTimeout = null;
 
     startBtn.addEventListener("click", startGame);
@@ -70,6 +91,16 @@ document.addEventListener("DOMContentLoaded", () => {
         return Math.min(200, Math.max(10, parsed));
     }
 
+    function clamp(value, min, max) {
+        return Math.min(max, Math.max(min, value));
+    }
+
+    function roundTo(value, digits = 2) {
+        if (!Number.isFinite(value)) return 0;
+        const factor = 10 ** digits;
+        return Math.round(value * factor) / factor;
+    }
+
     function setControlState(playing) {
         startBtn.style.display = playing ? "none" : "inline-block";
         pauseBtn.style.display = playing ? "inline-block" : "none";
@@ -81,9 +112,7 @@ document.addEventListener("DOMContentLoaded", () => {
     function updateStats() {
         scoreDisplay.textContent = String(score);
         progressDisplay.textContent = `${finishedTrials} / ${totalTrials}`;
-        const avgRt = reactionTimes.length > 0
-            ? Math.round(reactionTimes.reduce((sum, value) => sum + value, 0) / reactionTimes.length)
-            : 0;
+        const avgRt = average(reactionTimes);
         avgRtLiveDisplay.textContent = `${avgRt} ms`;
     }
 
@@ -92,10 +121,41 @@ document.addEventListener("DOMContentLoaded", () => {
         feedback.className = type ? `feedback ${type}` : "feedback";
     }
 
+    function validNumbers(values) {
+        return values.filter((value) => Number.isFinite(value));
+    }
+
     function average(values) {
-        const validValues = values.filter((value) => Number.isFinite(value));
+        const validValues = validNumbers(values);
         if (validValues.length === 0) return 0;
         return Math.round(validValues.reduce((sum, value) => sum + value, 0) / validValues.length);
+    }
+
+    function median(values) {
+        const validValues = validNumbers(values).sort((a, b) => a - b);
+        if (validValues.length === 0) return 0;
+        const middle = Math.floor(validValues.length / 2);
+        if (validValues.length % 2 === 1) return Math.round(validValues[middle]);
+        return Math.round((validValues[middle - 1] + validValues[middle]) / 2);
+    }
+
+    function percentile(values, percentileValue) {
+        const validValues = validNumbers(values).sort((a, b) => a - b);
+        if (validValues.length === 0) return 0;
+        const index = clamp((validValues.length - 1) * percentileValue, 0, validValues.length - 1);
+        const lower = Math.floor(index);
+        const upper = Math.ceil(index);
+        if (lower === upper) return Math.round(validValues[lower]);
+        const weight = index - lower;
+        return Math.round(validValues[lower] * (1 - weight) + validValues[upper] * weight);
+    }
+
+    function standardDeviation(values) {
+        const validValues = validNumbers(values);
+        if (validValues.length === 0) return 0;
+        const mean = validValues.reduce((sum, value) => sum + value, 0) / validValues.length;
+        const variance = validValues.reduce((sum, value) => sum + ((value - mean) ** 2), 0) / validValues.length;
+        return Math.round(Math.sqrt(variance));
     }
 
     function accuracyFor(items) {
@@ -104,7 +164,12 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     function formatPercent(value) {
-        return `${Math.round(value * 100)}%`;
+        return `${Math.round((Number.isFinite(value) ? value : 0) * 100)}%`;
+    }
+
+    function formatSignedMs(value) {
+        const rounded = Number.isFinite(value) ? Math.round(value) : 0;
+        return `${rounded > 0 ? "+" : ""}${rounded} ms`;
     }
 
     function oppositeDirection(direction) {
@@ -158,38 +223,251 @@ document.addEventListener("DOMContentLoaded", () => {
         return list;
     }
 
-    function buildTrialPlan(count) {
-        initializeSessionRandom();
-        const list = [];
-        const congruentCount = Math.ceil(count / 2);
-        const incongruentCount = count - congruentCount;
+    function createInitialAdaptiveState(blockIndex) {
+        return {
+            blockIndex,
+            loadLevel: 1,
+            incongruentRatio: roundTo(1 / 3, 2),
+            stimulusDurationMs: BASE_STIMULUS_DURATION_MS,
+            responseWindowMs: BASE_RESPONSE_WINDOW_MS,
+            basis: "initial"
+        };
+    }
 
-        function addCondition(condition, conditionCount) {
-            for (let i = 0; i < conditionCount; i += 1) {
-                list.push({
-                    condition,
-                    targetDirection: i % 2 === 0 ? "left" : "right"
-                });
-            }
+    function cloneAdaptiveState(state) {
+        return {
+            blockIndex: state.blockIndex,
+            loadLevel: state.loadLevel,
+            incongruentRatio: roundTo(state.incongruentRatio, 2),
+            stimulusDurationMs: state.stimulusDurationMs,
+            responseWindowMs: state.responseWindowMs,
+            basis: state.basis,
+            previousBlockAccuracy: state.previousBlockAccuracy ?? null,
+            previousBlockIncongruentAccuracy: state.previousBlockIncongruentAccuracy ?? null,
+            previousBlockCaptureErrorRate: state.previousBlockCaptureErrorRate ?? null,
+            previousBlockMeanRtMs: state.previousBlockMeanRtMs ?? null
+        };
+    }
+
+    function summarizeBlockForAdaptation(blockTrials) {
+        const trials = blockTrials || [];
+        const incongruentTrials = trials.filter((trial) => trial.condition === "incongruent");
+        const correctTrials = trials.filter((trial) => trial.correct);
+        const captureErrors = incongruentTrials.filter((trial) => trial.errorType === "flanker-capture").length;
+
+        return {
+            trialCount: trials.length,
+            accuracy: accuracyFor(trials),
+            incongruentAccuracy: accuracyFor(incongruentTrials),
+            captureErrorRate: incongruentTrials.length > 0 ? captureErrors / incongruentTrials.length : 0,
+            meanRtMs: average(correctTrials.map((trial) => trial.rtMs))
+        };
+    }
+
+    function adaptAdaptiveState(previousState, blockStats, nextIndex) {
+        const stats = blockStats || { trialCount: 0, accuracy: 0, incongruentAccuracy: 0, captureErrorRate: 0, meanRtMs: 0 };
+        const next = {
+            ...cloneAdaptiveState(previousState),
+            blockIndex: nextIndex,
+            basis: "stable",
+            previousBlockAccuracy: roundTo(stats.accuracy, 3),
+            previousBlockIncongruentAccuracy: roundTo(stats.incongruentAccuracy, 3),
+            previousBlockCaptureErrorRate: roundTo(stats.captureErrorRate, 3),
+            previousBlockMeanRtMs: stats.meanRtMs
+        };
+
+        if (stats.trialCount < Math.min(6, BLOCK_SIZE)) {
+            next.basis = "insufficient-data";
+            return next;
         }
 
-        addCondition("congruent", congruentCount);
-        addCondition("incongruent", incongruentCount);
+        const strongPerformance = stats.accuracy >= 0.9
+            && stats.incongruentAccuracy >= 0.85
+            && stats.captureErrorRate <= 0.12
+            && (stats.meanRtMs === 0 || stats.meanRtMs <= 900);
+        const overloaded = stats.accuracy < 0.75
+            || stats.incongruentAccuracy < 0.7
+            || stats.captureErrorRate >= 0.25;
 
-        shuffleInPlace(list);
-        return list.map((item, index) => {
-            const flankerDirection = item.condition === "congruent"
-                ? item.targetDirection
-                : oppositeDirection(item.targetDirection);
+        if (strongPerformance) {
+            next.loadLevel = clamp(next.loadLevel + 1, 1, 8);
+            next.incongruentRatio = roundTo(clamp(next.incongruentRatio + 0.07, 0.25, 0.6), 2);
+            next.stimulusDurationMs = clamp(next.stimulusDurationMs - 100, MIN_STIMULUS_DURATION_MS, MAX_STIMULUS_DURATION_MS);
+            next.responseWindowMs = clamp(next.responseWindowMs - 150, MIN_RESPONSE_WINDOW_MS, MAX_RESPONSE_WINDOW_MS);
+            next.basis = "increase-load";
+            return next;
+        }
+
+        if (overloaded) {
+            next.loadLevel = clamp(next.loadLevel - 1, 1, 8);
+            next.incongruentRatio = roundTo(clamp(next.incongruentRatio - 0.06, 0.25, 0.6), 2);
+            next.stimulusDurationMs = clamp(next.stimulusDurationMs + 150, MIN_STIMULUS_DURATION_MS, MAX_STIMULUS_DURATION_MS);
+            next.responseWindowMs = clamp(next.responseWindowMs + 200, MIN_RESPONSE_WINDOW_MS, MAX_RESPONSE_WINDOW_MS);
+            next.basis = "reduce-load";
+            return next;
+        }
+
+        return next;
+    }
+
+    function createConditionCounts(size, incongruentRatio) {
+        if (size <= 0) {
+            return { congruent: 0, incongruent: 0, neutral: 0 };
+        }
+        if (size < CONDITIONS.length) {
             return {
-                index,
-                condition: item.condition,
-                targetDirection: item.targetDirection,
-                flankerDirection,
-                correctResponse: item.targetDirection,
-                targetPosition: Math.floor(rng() * STIMULUS_SIZE)
+                congruent: size >= 1 ? 1 : 0,
+                incongruent: size >= 2 ? 1 : 0,
+                neutral: 0
             };
+        }
+
+        let incongruent = Math.round(size * incongruentRatio);
+        incongruent = clamp(incongruent, 1, size - 2);
+        const remaining = size - incongruent;
+        let congruent = Math.ceil(remaining / 2);
+        let neutral = remaining - congruent;
+
+        if (neutral === 0 && size >= CONDITIONS.length) {
+            neutral = 1;
+            congruent = Math.max(1, congruent - 1);
+        }
+
+        return { congruent, incongruent, neutral };
+    }
+
+    function createBalancedDirections(count, extraDirection) {
+        const leftCount = Math.floor(count / 2) + (count % 2 === 1 && extraDirection === "left" ? 1 : 0);
+        const rightCount = count - leftCount;
+        const directions = [
+            ...Array.from({ length: leftCount }, () => "left"),
+            ...Array.from({ length: rightCount }, () => "right")
+        ];
+        return shuffleInPlace(directions);
+    }
+
+    function createExtraDirectionMap(counts) {
+        const oddConditions = CONDITIONS.filter((condition) => counts[condition] % 2 === 1);
+        const firstDirection = rng() < 0.5 ? "left" : "right";
+        return oddConditions.reduce((map, condition, index) => {
+            map[condition] = index % 2 === 0 ? firstDirection : oppositeDirection(firstDirection);
+            return map;
+        }, {});
+    }
+
+    function sequencePenalty(items, previousCondition) {
+        let penalty = 0;
+        let lastCondition = previousCondition;
+        let conditionRun = previousCondition ? 1 : 0;
+        let lastTargetDirection = null;
+        let targetRun = 0;
+
+        items.forEach((item) => {
+            if (item.condition === lastCondition) {
+                conditionRun += 1;
+                if (conditionRun > 2) penalty += (conditionRun - 2) * 10;
+            } else {
+                conditionRun = 1;
+                lastCondition = item.condition;
+            }
+
+            if (item.targetDirection === lastTargetDirection) {
+                targetRun += 1;
+                if (targetRun > 3) penalty += (targetRun - 3) * 3;
+            } else {
+                targetRun = 1;
+                lastTargetDirection = item.targetDirection;
+            }
         });
+
+        return penalty;
+    }
+
+    function shuffleWithSequenceGuard(items, previousCondition) {
+        let best = items.map((item) => ({ ...item }));
+        let bestPenalty = Number.POSITIVE_INFINITY;
+
+        for (let attempt = 0; attempt < 120; attempt += 1) {
+            const candidate = shuffleInPlace(items.map((item) => ({ ...item })));
+            const penalty = sequencePenalty(candidate, previousCondition);
+            if (penalty < bestPenalty) {
+                best = candidate;
+                bestPenalty = penalty;
+            }
+            if (penalty === 0) break;
+        }
+
+        return best;
+    }
+
+    function buildBlockPlan(size, blockIndex, state, previousCondition, startIndex) {
+        const counts = createConditionCounts(size, state.incongruentRatio);
+        const extraDirections = createExtraDirectionMap(counts);
+        const rawTrials = [];
+
+        CONDITIONS.forEach((condition) => {
+            const targetDirections = createBalancedDirections(counts[condition], extraDirections[condition]);
+            targetDirections.forEach((targetDirection) => {
+                const flankerDirection = condition === "neutral"
+                    ? "neutral"
+                    : condition === "congruent"
+                        ? targetDirection
+                        : oppositeDirection(targetDirection);
+                rawTrials.push({
+                    condition,
+                    targetDirection,
+                    flankerDirection
+                });
+            });
+        });
+
+        const orderedTrials = shuffleWithSequenceGuard(rawTrials, previousCondition);
+        const stateSnapshot = cloneAdaptiveState(state);
+
+        return orderedTrials.map((trial, offset) => ({
+            index: startIndex + offset,
+            trialIndex: startIndex + offset,
+            condition: trial.condition,
+            targetDirection: trial.targetDirection,
+            flankerDirection: trial.flankerDirection,
+            correctResponse: trial.targetDirection,
+            previousCondition: offset === 0 ? previousCondition : orderedTrials[offset - 1].condition,
+            blockIndex,
+            adaptiveState: stateSnapshot,
+            targetPosition: TARGET_POSITION
+        }));
+    }
+
+    function prepareNextBlock() {
+        const remaining = totalTrials - trialPlan.length;
+        if (remaining <= 0) return;
+
+        if (nextBlockIndex > 0) {
+            const previousBlockTrials = trialLog.filter((trial) => trial.blockIndex === nextBlockIndex - 1);
+            adaptiveState = adaptAdaptiveState(adaptiveState, summarizeBlockForAdaptation(previousBlockTrials), nextBlockIndex);
+        }
+
+        const blockSize = Math.min(BLOCK_SIZE, remaining);
+        const previousCondition = trialPlan.length > 0 ? trialPlan[trialPlan.length - 1].condition : null;
+        const blockPlan = buildBlockPlan(blockSize, nextBlockIndex, adaptiveState, previousCondition, trialPlan.length);
+        trialPlan.push(...blockPlan);
+        nextBlockIndex += 1;
+    }
+
+    function arrowText(direction) {
+        return direction === "left" ? "<" : ">";
+    }
+
+    function arrowHtml(direction) {
+        return direction === "left" ? "&lt;" : "&gt;";
+    }
+
+    function flankerText(trial) {
+        return trial.condition === "neutral" ? "-" : arrowText(trial.flankerDirection);
+    }
+
+    function flankerHtml(trial) {
+        return trial.condition === "neutral" ? "-" : arrowHtml(trial.flankerDirection);
     }
 
     function errorTypeFor(stimulus, response, timedOut, correct) {
@@ -211,54 +489,157 @@ document.addEventListener("DOMContentLoaded", () => {
             index: currentStimulus.index,
             trialIndex: currentStimulus.index,
             condition: currentStimulus.condition,
-            stimulus: currentStimulus.text,
             targetDirection: currentStimulus.targetDirection,
             flankerDirection: currentStimulus.flankerDirection,
-            correctResponse: currentStimulus.correctResponse,
+            stimulus: currentStimulus.text,
             response: response || null,
             correct,
             rtMs: roundedRt,
-            timedOut: Boolean(timedOut),
             errorType,
+            previousCondition: currentStimulus.previousCondition,
+            blockIndex: currentStimulus.blockIndex,
+            adaptiveState: cloneAdaptiveState(currentStimulus.adaptiveState),
+            correctResponse: currentStimulus.correctResponse,
+            timedOut: Boolean(timedOut),
             targetPosition: currentStimulus.targetPosition
         });
+    }
+
+    function buildRtDistribution(values) {
+        const validValues = validNumbers(values);
+        return {
+            count: validValues.length,
+            meanRtMs: average(validValues),
+            medianRtMs: median(validValues),
+            p10RtMs: percentile(validValues, 0.1),
+            p90RtMs: percentile(validValues, 0.9),
+            minRtMs: validValues.length > 0 ? Math.min(...validValues) : 0,
+            maxRtMs: validValues.length > 0 ? Math.max(...validValues) : 0
+        };
+    }
+
+    function buildConditionMetrics() {
+        return CONDITIONS.reduce((metrics, condition) => {
+            const trials = trialLog.filter((trial) => trial.condition === condition);
+            const correctTrials = trials.filter((trial) => trial.correct);
+            const correctRts = correctTrials.map((trial) => trial.rtMs);
+            metrics[condition] = {
+                label: CONDITION_LABELS[condition],
+                count: trials.length,
+                correctCount: correctTrials.length,
+                accuracy: accuracyFor(trials),
+                meanRtMs: average(correctRts),
+                medianRtMs: median(correctRts),
+                p10RtMs: percentile(correctRts, 0.1),
+                p90RtMs: percentile(correctRts, 0.9)
+            };
+            return metrics;
+        }, {});
+    }
+
+    function calculateConflictAdaptation() {
+        const usableTrials = trialLog.filter((trial) => (
+            trial.correct
+            && Number.isFinite(trial.rtMs)
+            && (trial.condition === "congruent" || trial.condition === "incongruent")
+            && (trial.previousCondition === "congruent" || trial.previousCondition === "incongruent")
+        ));
+        const afterCongruent = usableTrials.filter((trial) => trial.previousCondition === "congruent");
+        const afterIncongruent = usableTrials.filter((trial) => trial.previousCondition === "incongruent");
+        const afterCongruentIncongruent = afterCongruent.filter((trial) => trial.condition === "incongruent").map((trial) => trial.rtMs);
+        const afterCongruentCongruent = afterCongruent.filter((trial) => trial.condition === "congruent").map((trial) => trial.rtMs);
+        const afterIncongruentIncongruent = afterIncongruent.filter((trial) => trial.condition === "incongruent").map((trial) => trial.rtMs);
+        const afterIncongruentCongruent = afterIncongruent.filter((trial) => trial.condition === "congruent").map((trial) => trial.rtMs);
+        const completeCells = [
+            afterCongruentIncongruent,
+            afterCongruentCongruent,
+            afterIncongruentIncongruent,
+            afterIncongruentCongruent
+        ].every((items) => items.length > 0);
+        const effectAfterCongruentMs = completeCells
+            ? average(afterCongruentIncongruent) - average(afterCongruentCongruent)
+            : 0;
+        const effectAfterIncongruentMs = completeCells
+            ? average(afterIncongruentIncongruent) - average(afterIncongruentCongruent)
+            : 0;
+
+        return {
+            usableTrialCount: usableTrials.length,
+            completeCells,
+            cellCounts: {
+                afterCongruentIncongruent: afterCongruentIncongruent.length,
+                afterCongruentCongruent: afterCongruentCongruent.length,
+                afterIncongruentIncongruent: afterIncongruentIncongruent.length,
+                afterIncongruentCongruent: afterIncongruentCongruent.length
+            },
+            effectAfterCongruentMs,
+            effectAfterIncongruentMs,
+            effectReductionMs: effectAfterCongruentMs - effectAfterIncongruentMs
+        };
+    }
+
+    function calculateRtVariability(values) {
+        const validValues = validNumbers(values);
+        const meanRtMs = average(validValues);
+        const sdMs = standardDeviation(validValues);
+        return {
+            count: validValues.length,
+            sdMs,
+            coefficientOfVariation: meanRtMs > 0 ? roundTo(sdMs / meanRtMs, 3) : 0
+        };
+    }
+
+    function getLatestBlockTrials() {
+        if (trialLog.length === 0) return [];
+        const latestBlockIndex = trialLog[trialLog.length - 1].blockIndex;
+        return trialLog.filter((trial) => trial.blockIndex === latestBlockIndex);
     }
 
     function buildSummary() {
         const completedTrials = trialLog.length;
         const correctTrials = trialLog.filter((trial) => trial.correct);
         const correctCount = correctTrials.length;
+        const conditionMetrics = buildConditionMetrics();
         const congruentTrials = trialLog.filter((trial) => trial.condition === "congruent");
         const incongruentTrials = trialLog.filter((trial) => trial.condition === "incongruent");
-        const congruentCorrectRt = congruentTrials
-            .filter((trial) => trial.correct)
-            .map((trial) => trial.rtMs);
-        const incongruentCorrectRt = incongruentTrials
-            .filter((trial) => trial.correct)
-            .map((trial) => trial.rtMs);
-        const congruentMeanRtMs = average(congruentCorrectRt);
-        const incongruentMeanRtMs = average(incongruentCorrectRt);
+        const neutralTrials = trialLog.filter((trial) => trial.condition === "neutral");
+        const congruentMeanRtMs = conditionMetrics.congruent.meanRtMs;
+        const incongruentMeanRtMs = conditionMetrics.incongruent.meanRtMs;
         const canEstimateEffect = congruentMeanRtMs > 0 && incongruentMeanRtMs > 0;
+        const flankerCaptureErrorCount = trialLog.filter((trial) => trial.errorType === "flanker-capture").length;
+        const latestBlockStats = summarizeBlockForAdaptation(getLatestBlockTrials());
+        const nextParameters = adaptAdaptiveState(adaptiveState, latestBlockStats, nextBlockIndex);
+        const correctRtValues = correctTrials.map((trial) => trial.rtMs);
 
         return {
             totalTrials: completedTrials,
             plannedTrials: totalTrials,
             correctCount,
             accuracy: completedTrials > 0 ? correctCount / completedTrials : 0,
-            meanRtMs: average(correctTrials.map((trial) => trial.rtMs)),
+            meanRtMs: average(correctRtValues),
             responseMeanRtMs: average(trialLog.map((trial) => trial.rtMs)),
+            conditionMetrics,
             congruentAccuracy: accuracyFor(congruentTrials),
             incongruentAccuracy: accuracyFor(incongruentTrials),
+            neutralAccuracy: accuracyFor(neutralTrials),
             congruentMeanRtMs,
             incongruentMeanRtMs,
+            neutralMeanRtMs: conditionMetrics.neutral.meanRtMs,
             flankerEffectMs: canEstimateEffect ? incongruentMeanRtMs - congruentMeanRtMs : 0,
             errorCount: completedTrials - correctCount,
             timeoutCount: trialLog.filter((trial) => trial.timedOut).length,
-            flankerCaptureErrorCount: trialLog.filter((trial) => trial.errorType === "flanker-capture").length,
+            flankerCaptureErrorCount,
+            captureErrorRate: incongruentTrials.length > 0 ? flankerCaptureErrorCount / incongruentTrials.length : 0,
             directionErrorCount: trialLog.filter((trial) => trial.errorType === "direction-error").length,
             congruentTrials: congruentTrials.length,
             incongruentTrials: incongruentTrials.length,
-            responseWindowMs: RESPONSE_WINDOW_MS,
+            neutralTrials: neutralTrials.length,
+            conflictAdaptation: calculateConflictAdaptation(),
+            rtVariability: calculateRtVariability(correctRtValues),
+            rtDistribution: buildRtDistribution(correctRtValues),
+            nextParameters: cloneAdaptiveState(nextParameters),
+            baseResponseWindowMs: BASE_RESPONSE_WINDOW_MS,
+            baseStimulusDurationMs: BASE_STIMULUS_DURATION_MS,
             seed: sessionSeed,
             contentVersion: CONTENT_VERSION,
             sessionSeed
@@ -290,15 +671,30 @@ document.addEventListener("DOMContentLoaded", () => {
             metrics: {
                 accuracy: formatPercent(summary.accuracy),
                 meanRt: `${summary.meanRtMs}ms`,
+                conditionAccuracy: CONDITIONS.reduce((items, condition) => {
+                    items[condition] = summary.conditionMetrics[condition].accuracy;
+                    return items;
+                }, {}),
+                conditionMeanRtMs: CONDITIONS.reduce((items, condition) => {
+                    items[condition] = summary.conditionMetrics[condition].meanRtMs;
+                    return items;
+                }, {}),
                 congruentAccuracy: formatPercent(summary.congruentAccuracy),
                 incongruentAccuracy: formatPercent(summary.incongruentAccuracy),
+                neutralAccuracy: formatPercent(summary.neutralAccuracy),
+                flankerEffectMs: summary.flankerEffectMs,
                 flankerEffect: `${summary.flankerEffectMs}ms`,
+                captureErrorRate: summary.captureErrorRate,
+                conflictAdaptation: summary.conflictAdaptation,
+                rtVariability: summary.rtVariability,
+                rtDistribution: summary.rtDistribution,
+                nextParameters: summary.nextParameters,
                 errors: summary.errorCount,
                 seed: sessionSeed,
                 sessionSeed,
                 contentVersion: CONTENT_VERSION
             },
-            tags: ["attention", "selective-attention", "conflict-inhibition", "flanker"]
+            tags: ["attention", "selective-attention", "conflict-monitoring", "conflict-adaptation", "flanker"]
         });
 
         sessionSaved = true;
@@ -316,7 +712,10 @@ document.addEventListener("DOMContentLoaded", () => {
         sessionStartedAt = new Date();
         sessionSaved = false;
         trialLog = [];
-        trialPlan = buildTrialPlan(totalTrials);
+        trialPlan = [];
+        adaptiveState = createInitialAdaptiveState(0);
+        nextBlockIndex = 0;
+        initializeSessionRandom();
         isPlaying = true;
         isPaused = false;
         roundOpen = false;
@@ -325,7 +724,7 @@ document.addEventListener("DOMContentLoaded", () => {
         setControlState(true);
         leftBtn.disabled = false;
         rightBtn.disabled = false;
-        showFeedback("开始训练：只按红色目标箭头方向", "correct");
+        showFeedback("开始训练：按中央红色目标箭头方向", "correct");
         updateStats();
 
         clearTimeout(nextRoundTimeout);
@@ -334,26 +733,44 @@ document.addEventListener("DOMContentLoaded", () => {
 
     function buildStimulus(trialIndex) {
         const planned = trialPlan[trialIndex];
-        const targetChar = planned.targetDirection === "left" ? "<" : ">";
-        const flankerChar = planned.flankerDirection === "left" ? "<" : ">";
+        const targetHtml = arrowHtml(planned.targetDirection);
+        const targetText = arrowText(planned.targetDirection);
+        const distractorHtml = flankerHtml(planned);
+        const distractorText = flankerText(planned);
         const htmlChars = [];
         const textChars = [];
 
         for (let i = 0; i < STIMULUS_SIZE; i += 1) {
             if (i === planned.targetPosition) {
-                htmlChars.push(`<span style="color:#e74c3c">${targetChar}</span>`);
-                textChars.push(targetChar);
+                htmlChars.push(`<span style="color:#e74c3c">${targetHtml}</span>`);
+                textChars.push(targetText);
             } else {
-                htmlChars.push(flankerChar);
-                textChars.push(flankerChar);
+                htmlChars.push(distractorHtml);
+                textChars.push(distractorText);
             }
         }
 
         return {
             ...planned,
+            adaptiveState: cloneAdaptiveState(planned.adaptiveState),
             html: htmlChars.join(" "),
             text: textChars.join(" ")
         };
+    }
+
+    function hideStimulusIfOpen(stimulus) {
+        if (!roundOpen || !currentStimulus || currentStimulus.index !== stimulus.index) return;
+        display.textContent = "+ + + + +";
+    }
+
+    function armTrialTimers(stimulus) {
+        clearTimeout(trialTimeout);
+        clearTimeout(stimulusHideTimeout);
+
+        trialTimeout = setTimeout(handleTimeout, stimulus.adaptiveState.responseWindowMs);
+        if (stimulus.adaptiveState.stimulusDurationMs < stimulus.adaptiveState.responseWindowMs) {
+            stimulusHideTimeout = setTimeout(() => hideStimulusIfOpen(stimulus), stimulus.adaptiveState.stimulusDurationMs);
+        }
     }
 
     function nextRound() {
@@ -363,24 +780,27 @@ document.addEventListener("DOMContentLoaded", () => {
             return;
         }
 
+        if (finishedTrials >= trialPlan.length) {
+            prepareNextBlock();
+        }
+
         const stimulus = buildStimulus(finishedTrials);
         currentStimulus = stimulus;
         display.innerHTML = stimulus.html;
         stimulusStartTime = Date.now();
         roundOpen = true;
-
-        clearTimeout(trialTimeout);
-        trialTimeout = setTimeout(handleTimeout, RESPONSE_WINDOW_MS);
+        armTrialTimers(stimulus);
     }
 
     function handleTimeout() {
         if (!roundOpen || !isPlaying || isPaused) return;
 
         roundOpen = false;
+        clearTimeout(stimulusHideTimeout);
         recordTrial(null, false, null, true);
         currentStimulus = null;
         finishedTrials += 1;
-        showFeedback("超时：未在 2 秒内作答", "wrong");
+        showFeedback("超时：未在作答窗口内反应", "wrong");
         updateStats();
         scheduleNextRound();
     }
@@ -395,6 +815,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
         roundOpen = false;
         clearTimeout(trialTimeout);
+        clearTimeout(stimulusHideTimeout);
 
         const stimulus = currentStimulus;
         const rt = Date.now() - stimulusStartTime;
@@ -425,6 +846,7 @@ document.addEventListener("DOMContentLoaded", () => {
             leftBtn.disabled = true;
             rightBtn.disabled = true;
             clearTimeout(trialTimeout);
+            clearTimeout(stimulusHideTimeout);
             clearTimeout(nextRoundTimeout);
             showFeedback("已暂停");
             return;
@@ -436,9 +858,10 @@ document.addEventListener("DOMContentLoaded", () => {
         rightBtn.disabled = false;
         showFeedback("继续训练", "correct");
 
-        if (roundOpen) {
+        if (roundOpen && currentStimulus) {
+            display.innerHTML = currentStimulus.html;
             stimulusStartTime = Date.now();
-            trialTimeout = setTimeout(handleTimeout, RESPONSE_WINDOW_MS);
+            armTrialTimers(currentStimulus);
             return;
         }
 
@@ -447,7 +870,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     function buildEffectExplanation(summary) {
         if (summary.congruentMeanRtMs === 0 || summary.incongruentMeanRtMs === 0) {
-            return "两类条件的正确反应不足，暂不能稳定估计 flankerEffect（干扰成本）。";
+            return "一致与不一致条件的正确反应不足，暂不能稳定估计 flankerEffect（干扰成本）。";
         }
         if (summary.flankerEffectMs > 0) {
             return `flankerEffect（干扰成本）为 ${summary.flankerEffectMs} ms：不一致条件平均比一致条件慢，表示抑制干扰箭头需要额外时间。`;
@@ -474,6 +897,28 @@ document.addEventListener("DOMContentLoaded", () => {
         return `超时 ${summary.timeoutCount} 次；被干扰方向带偏 ${summary.flankerCaptureErrorCount} 次；其他方向错误 ${summary.directionErrorCount} 次。${primaryText}`;
     }
 
+    function formatConditionMetrics(conditionMetrics) {
+        return CONDITIONS.map((condition) => {
+            const metric = conditionMetrics[condition];
+            return `${metric.label}: ${formatPercent(metric.accuracy)} / ${metric.meanRtMs} ms / n=${metric.count}`;
+        }).join("；");
+    }
+
+    function formatConflictAdaptation(conflictAdaptation) {
+        if (conflictAdaptation.usableTrialCount < 4 || !conflictAdaptation.completeCells) {
+            return "有效相邻试次不足";
+        }
+        return `冲突后干扰降低 ${formatSignedMs(conflictAdaptation.effectReductionMs)}（前一一致效应 ${formatSignedMs(conflictAdaptation.effectAfterCongruentMs)}，前一不一致效应 ${formatSignedMs(conflictAdaptation.effectAfterIncongruentMs)}）`;
+    }
+
+    function formatRtVariability(rtVariability) {
+        return `${rtVariability.sdMs} ms，CV ${rtVariability.coefficientOfVariation}`;
+    }
+
+    function formatNextParameters(nextParameters) {
+        return `不一致比例 ${formatPercent(nextParameters.incongruentRatio)}；刺激 ${nextParameters.stimulusDurationMs} ms；作答 ${nextParameters.responseWindowMs} ms；负荷 ${nextParameters.loadLevel}`;
+    }
+
     function endGame(forced = false) {
         if (!isPlaying) return;
 
@@ -481,6 +926,7 @@ document.addEventListener("DOMContentLoaded", () => {
         isPaused = false;
         roundOpen = false;
         clearTimeout(trialTimeout);
+        clearTimeout(stimulusHideTimeout);
         clearTimeout(nextRoundTimeout);
 
         leftBtn.disabled = true;
@@ -506,6 +952,21 @@ document.addEventListener("DOMContentLoaded", () => {
         if (errorBreakdownDisplay) {
             errorBreakdownDisplay.textContent = buildErrorBreakdown(summary);
         }
+        if (conditionMetricsDisplay) {
+            conditionMetricsDisplay.textContent = formatConditionMetrics(summary.conditionMetrics);
+        }
+        if (captureErrorRateDisplay) {
+            captureErrorRateDisplay.textContent = formatPercent(summary.captureErrorRate);
+        }
+        if (conflictAdaptationDisplay) {
+            conflictAdaptationDisplay.textContent = formatConflictAdaptation(summary.conflictAdaptation);
+        }
+        if (rtVariabilityDisplay) {
+            rtVariabilityDisplay.textContent = formatRtVariability(summary.rtVariability);
+        }
+        if (nextParametersDisplay) {
+            nextParametersDisplay.textContent = formatNextParameters(summary.nextParameters);
+        }
         if (resultExplanationDisplay) {
             resultExplanationDisplay.textContent = buildEffectExplanation(summary);
         }
@@ -518,6 +979,7 @@ document.addEventListener("DOMContentLoaded", () => {
         isPaused = false;
         roundOpen = false;
         clearTimeout(trialTimeout);
+        clearTimeout(stimulusHideTimeout);
         clearTimeout(nextRoundTimeout);
         leftBtn.disabled = true;
         rightBtn.disabled = true;
@@ -533,10 +995,17 @@ document.addEventListener("DOMContentLoaded", () => {
         sessionStartedAt = null;
         sessionSeed = "";
         sessionSaved = false;
+        adaptiveState = createInitialAdaptiveState(0);
+        nextBlockIndex = 0;
         rng = fallbackMulberry32(1);
         totalTrials = sanitizeTrials(trialSetting.value);
         if (flankerEffectDisplay) flankerEffectDisplay.textContent = "";
         if (errorBreakdownDisplay) errorBreakdownDisplay.textContent = "";
+        if (conditionMetricsDisplay) conditionMetricsDisplay.textContent = "";
+        if (captureErrorRateDisplay) captureErrorRateDisplay.textContent = "";
+        if (conflictAdaptationDisplay) conflictAdaptationDisplay.textContent = "";
+        if (rtVariabilityDisplay) rtVariabilityDisplay.textContent = "";
+        if (nextParametersDisplay) nextParametersDisplay.textContent = "";
         if (resultExplanationDisplay) resultExplanationDisplay.textContent = "";
         updateStats();
     }

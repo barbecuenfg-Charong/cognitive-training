@@ -9,9 +9,40 @@
     <link rel="preload" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" as="style" onload="this.onload=null;this.rel='stylesheet'">
     <noscript><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css"></noscript>
     <style>
+        .mh-training-card {
+            border: 1px solid #dfe6e9;
+            border-radius: 8px;
+            background: #ffffff;
+            padding: 14px;
+            margin-bottom: 16px;
+        }
+
+        .mh-status {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 12px;
+        }
+
+        .mh-status span {
+            display: block;
+            color: #636e72;
+            font-size: 0.86rem;
+            margin-bottom: 4px;
+        }
+
+        .mh-status strong {
+            color: #2d3436;
+        }
+
+        .mh-comparison {
+            margin: 12px 0 0;
+            color: #34495e;
+            line-height: 1.55;
+        }
+
         .mh-doors {
             display: grid;
-            grid-template-columns: repeat(3, minmax(100px, 1fr));
+            grid-template-columns: repeat(auto-fit, minmax(90px, 1fr));
             gap: 16px;
             margin: 20px 0;
         }
@@ -62,6 +93,26 @@
             min-height: 24px;
             margin-top: 10px;
         }
+
+        .mh-feedback {
+            border-left: 4px solid #3498db;
+            background: #f4f9fd;
+            color: #2c3e50;
+            line-height: 1.55;
+            margin: 12px 0 0;
+            min-height: 44px;
+            padding: 10px 12px;
+        }
+
+        .mh-feedback.win {
+            border-left-color: #27ae60;
+            background: #edf8f1;
+        }
+
+        .mh-feedback.loss {
+            border-left-color: #f39c12;
+            background: #fff8e8;
+        }
     </style>
 </head>
 <body>
@@ -70,25 +121,26 @@
             <a href="index.html" class="back-btn"><span aria-hidden="true">←</span><span>返回主页</span></a>
             <h1>蒙提霍尔问题</h1>
             <div class="score-board">
-                <span><i class="fas fa-trophy"></i> 获胜率: <span id="win-rate">0%</span></span>
+                <span><i class="fas fa-trophy"></i> 总胜率: <span id="win-rate">0%</span></span>
+                <span><i class="fas fa-exchange-alt"></i> 切换率: <span id="switch-use-rate">0%</span></span>
                 <span><i class="fas fa-random"></i> 切换胜率: <span id="switch-rate">0%</span></span>
                 <span><i class="fas fa-lock"></i> 坚持胜率: <span id="stay-rate">0%</span></span>
-                <span><i class="fas fa-list-ol"></i> 回合: <span id="round-count">0/12</span></span>
+                <span><i class="fas fa-list-ol"></i> 进度: <span id="round-count">0/32</span></span>
             </div>
         </header>
 
         <div class="game-area">
             <div class="instruction-overlay" id="start-screen">
                 <div class="instruction-content">
-                    <h2><i class="fas fa-door-open"></i> 条件概率经典题</h2>
-                    <p>完成 12 轮固定样例。你先选门，主持人会打开一扇确定是羊的门。此时你可以坚持原选择或改选另一扇未开的门。</p>
+                    <h2><i class="fas fa-door-open"></i> 条件概率策略训练</h2>
+                    <p>完成 4 个训练块。先在强制切换和强制坚持条件下观察长期胜率，再进入自由选择条件，校准“是否换门”的概率判断。</p>
                     <div class="rule-box">
                         <h3>规则</h3>
                         <ul>
-                            <li>3 扇门中仅 1 扇有汽车，另外 2 扇是山羊。</li>
+                            <li>经典 3 门范式会保留，并在后段加入更多门数的参数变化。</li>
                             <li>主持人永远不会打开有汽车的门，也不会打开你已选的门。</li>
-                            <li>第二步你可以选择 <strong>切换</strong> 或 <strong>坚持</strong>。</li>
-                            <li>完成第 12 轮后生成一次训练记录。</li>
+                            <li>每个 block 固定为强制切换、强制坚持或自由选择。</li>
+                            <li>结束后保存条件、策略、胜率趋势和下一轮参数建议。</li>
                         </ul>
                     </div>
                     <button class="start-btn" onclick="startGame()">开始训练</button>
@@ -96,8 +148,26 @@
             </div>
 
             <div id="mh-panel" style="display:none;">
+                <div class="mh-training-card">
+                    <div class="mh-status">
+                        <div>
+                            <span>当前 block</span>
+                            <strong id="block-title">-</strong>
+                        </div>
+                        <div>
+                            <span>条件</span>
+                            <strong id="condition-text">-</strong>
+                        </div>
+                        <div>
+                            <span>参数</span>
+                            <strong id="parameter-text">-</strong>
+                        </div>
+                    </div>
+                    <p class="mh-comparison" id="comparison-text"></p>
+                </div>
                 <div class="mh-doors" id="doors"></div>
                 <p class="mh-hint" id="hint-text"></p>
+                <p class="mh-feedback" id="feedback-text"></p>
                 <div class="mh-actions">
                     <button class="btn primary" id="stay-btn" disabled>坚持原选择</button>
                     <button class="btn secondary" id="switch-btn" disabled>切换到另一扇门</button>
@@ -126,6 +196,22 @@
                         <div class="result-stat">
                             <span class="stat-label">策略分布</span>
                             <span class="stat-value" id="result-strategy">切换 0 / 坚持 0</span>
+                        </div>
+                        <div class="result-stat">
+                            <span class="stat-label">切换率</span>
+                            <span class="stat-value" id="result-switch-rate">0%</span>
+                        </div>
+                        <div class="result-stat">
+                            <span class="stat-label">学习趋势</span>
+                            <span class="stat-value" id="result-trend">-</span>
+                        </div>
+                        <div class="result-stat">
+                            <span class="stat-label">偏误模式</span>
+                            <span class="stat-value" id="result-bias">-</span>
+                        </div>
+                        <div class="result-stat">
+                            <span class="stat-label">下次参数</span>
+                            <span class="stat-value" id="result-next">-</span>
                         </div>
                         <p class="feedback-text" id="result-text"></p>
                     </div>

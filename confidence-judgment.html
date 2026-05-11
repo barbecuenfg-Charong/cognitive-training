@@ -41,6 +41,80 @@
         .cj-slider input {
             width: 100%;
         }
+
+        .cj-meta {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-bottom: 8px;
+            font-size: 0.88rem;
+            color: #58606f;
+        }
+
+        .cj-pill {
+            border: 1px solid #dfe5ec;
+            border-radius: 999px;
+            padding: 3px 8px;
+            background: #fff;
+        }
+
+        .confidence-row {
+            display: flex;
+            align-items: baseline;
+            justify-content: space-between;
+            gap: 12px;
+        }
+
+        .confidence-hint {
+            color: #58606f;
+            font-size: 0.9rem;
+            text-align: right;
+        }
+
+        .confidence-scale {
+            display: flex;
+            justify-content: space-between;
+            color: #6c7583;
+            font-size: 0.82rem;
+        }
+
+        .cj-feedback {
+            min-height: 72px;
+            margin-top: 12px;
+            padding: 12px;
+            border-radius: 8px;
+            background: #fff;
+            border: 1px solid #e5eaf0;
+            color: #344054;
+        }
+
+        .cj-feedback strong {
+            color: #263445;
+        }
+
+        .calibration-bins {
+            display: grid;
+            gap: 8px;
+            margin-top: 10px;
+        }
+
+        .bin-row {
+            display: grid;
+            grid-template-columns: 70px 1fr 1fr 1fr;
+            gap: 8px;
+            align-items: center;
+            padding: 8px;
+            border: 1px solid #e5eaf0;
+            border-radius: 8px;
+            background: #f8f9fa;
+            font-size: 0.9rem;
+        }
+
+        .summary-note {
+            margin-top: 12px;
+            color: #344054;
+            line-height: 1.5;
+        }
     </style>
 </head>
 <body>
@@ -49,9 +123,9 @@
             <a href="index.html" class="back-btn"><span aria-hidden="true">←</span><span>返回主页</span></a>
             <h1>置信度判断任务</h1>
             <div class="score-board">
-                <span><i class="fas fa-list-ol"></i> 题目: <span id="progress">0/8</span></span>
+                <span><i class="fas fa-list-ol"></i> 题目: <span id="progress">0/12</span></span>
                 <span><i class="fas fa-check-circle"></i> 正确率: <span id="acc">0%</span></span>
-                <span><i class="fas fa-balance-scale"></i> 校准差: <span id="gap">0%</span></span>
+                <span><i class="fas fa-balance-scale"></i> 信心-正确率: <span id="gap">0%</span></span>
             </div>
         </header>
 
@@ -59,13 +133,14 @@
             <div class="instruction-overlay" id="start-screen">
                 <div class="instruction-content">
                     <h2><i class="fas fa-chart-line"></i> 元认知监控训练</h2>
-                    <p>先作答，再给出你对该答案的置信度，训练“知道自己知道多少”。</p>
+                    <p>先作答，再给出你对该答案的置信度，训练 confidence 与 accuracy 的匹配。</p>
                     <div class="rule-box">
                         <h3>规则</h3>
                         <ul>
                             <li>每题单选一个答案。</li>
-                            <li>用滑块设置你对该答案的置信度（50%-100%）。</li>
-                            <li>系统会比较“置信度”与“真实正确率”的差距。</li>
+                            <li>用 50%-100% 滑块设置你对该答案的置信度。</li>
+                            <li>题目按难度和题型分层，结果会报告 Brier、分箱校准和过/低信心。</li>
+                            <li>反馈只指出哪些题型应降低或提高信心。</li>
                         </ul>
                     </div>
                     <button class="start-btn" onclick="startGame()">开始任务</button>
@@ -76,13 +151,29 @@
                 <div class="cj-card" id="question-box"></div>
                 <div class="cj-options" id="options-box"></div>
                 <div class="cj-slider">
-                    <label for="confidence">置信度: <span id="confidence-label">70%</span></label>
-                    <input id="confidence" type="range" min="50" max="100" step="1" value="70">
+                    <label class="confidence-row" for="confidence">
+                        <span>本题置信度: <span id="confidence-label">70%</span></span>
+                        <span class="confidence-hint" id="confidence-meaning">有把握但仍需校验</span>
+                    </label>
+                    <input id="confidence" type="range" min="50" max="100" step="5" value="70" list="confidence-marks">
+                    <datalist id="confidence-marks">
+                        <option value="50"></option>
+                        <option value="60"></option>
+                        <option value="70"></option>
+                        <option value="80"></option>
+                        <option value="90"></option>
+                        <option value="100"></option>
+                    </datalist>
+                    <div class="confidence-scale" aria-hidden="true">
+                        <span>50 猜测</span>
+                        <span>70 较有把握</span>
+                        <span>90+ 高把握</span>
+                    </div>
                 </div>
                 <div style="margin-top:12px;">
                     <button class="btn primary" id="submit-btn">提交本题</button>
                 </div>
-                <p class="feedback-text" id="feedback"></p>
+                <div class="cj-feedback" id="feedback"></div>
             </div>
 
             <div class="modal-overlay" id="result-modal">
@@ -100,9 +191,22 @@
                             <span class="stat-value" id="result-conf">0%</span>
                         </div>
                         <div class="result-stat">
-                            <span class="stat-label">校准差 |置信度-正确率|</span>
+                            <span class="stat-label">过度自信差 信心-正确率</span>
                             <span class="stat-value warning" id="result-gap">0%</span>
                         </div>
+                        <div class="result-stat">
+                            <span class="stat-label">Brier score</span>
+                            <span class="stat-value" id="result-brier">0.000</span>
+                        </div>
+                        <div class="result-stat">
+                            <span class="stat-label">Resolution</span>
+                            <span class="stat-value" id="result-resolution">0.000</span>
+                        </div>
+                        <div class="summary-note" id="result-feedback"></div>
+                        <h3>校准分箱</h3>
+                        <div class="calibration-bins" id="calibration-bins"></div>
+                        <h3>下一轮参数</h3>
+                        <div class="summary-note" id="result-next"></div>
                     </div>
                     <div class="modal-footer">
                         <button class="btn-primary" onclick="location.reload()">再试一次</button>

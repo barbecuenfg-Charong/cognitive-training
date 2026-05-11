@@ -77,7 +77,7 @@
         <header class="with-back-link">
             <a href="index.html" class="back-btn page-header-back"><span aria-hidden="true">←</span><span>返回主页</span></a>
             <h1>Flanker 专注力训练</h1>
-            <p>请根据<b>红色</b>箭头的方向进行操作，忽略其他干扰</p>
+            <p>请根据中央<b>红色</b>箭头的方向进行操作，忽略两侧干扰</p>
         </header>
 
         <div class="controls">
@@ -125,10 +125,10 @@
             <h3>规则说明</h3>
             <p>屏幕会显示一组箭头，例如：<br>
             &lt; &lt; <strong style="color:red">&gt;</strong> &lt; &lt;<br>
-            您的任务是只看<b>红色</b>的那个箭头。</p>
-            <p>如果红色箭头指向左，按左键；指向右，按右键。红色箭头的位置是随机的。</p>
-            <p>训练包含一致试次和不一致试次：不一致试次要求您抑制两侧干扰箭头，只依据红色目标箭头反应。</p>
-            <p>每题作答窗口为 2 秒，超时计为未作答并自动进入下一题。</p>
+            您的任务是只看中央<b>红色</b>目标箭头。</p>
+            <p>如果中央红色箭头指向左，按左键；指向右，按右键。</p>
+            <p>训练包含一致、不一致和中性试次：不一致试次要求您抑制两侧干扰箭头，只依据红色目标箭头反应。</p>
+            <p>作答窗口和刺激呈现时长会按分块表现调整，超时计为未作答并自动进入下一题。</p>
         </div>
     </div>
 
@@ -139,6 +139,11 @@
             <p>最终得分: <span id="final-score"></span></p>
             <p>平均反应时间: <span id="avg-rt"></span> ms</p>
             <p>干扰成本（不一致 - 一致）: <span id="flanker-effect"></span></p>
+            <p>条件表现: <span id="condition-metrics"></span></p>
+            <p>干扰捕获率: <span id="capture-error-rate"></span></p>
+            <p>冲突适应: <span id="conflict-adaptation"></span></p>
+            <p>反应时波动: <span id="rt-variability"></span></p>
+            <p>下轮参数: <span id="next-parameters"></span></p>
             <p>错误类型: <span id="error-breakdown"></span></p>
             <p id="result-explanation" class="result-detail"></p>
             <button id="restart-btn" class="btn primary">重新训练</button>
