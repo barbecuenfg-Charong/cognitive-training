@@ -33,8 +33,87 @@ function toLocaleTime(isoString) {
 
 const SUMMARY_PRIORITY_KEYS = ["totalTrials", "correctCount", "accuracy", "meanRtMs"];
 const DEFAULT_SUMMARY_ENTRY_LIMIT = 5;
-const MODULE_SUMMARY_ENTRY_LIMIT = 6;
+const MODULE_SUMMARY_ENTRY_LIMIT = 7;
 const MODULE_METRIC_KEY_GROUPS = {
+    "stop-signal": [
+        ["stopSuccessRate", "stopSuccessRateValue"],
+        ["ssrtEstimateMs", "ssrtEstimate"],
+        ["stopFailureRate", "pRespondOnStop"],
+        ["meanSsdMs", "meanSSD"],
+        ["finalSsdMs", "finalSSD"]
+    ],
+    "go-no-go": [
+        ["hitRate"],
+        ["commissionErrorRate"],
+        ["omissionRate"],
+        ["dPrime"],
+        ["criterion"]
+    ],
+    schulte: [
+        ["scanStability"],
+        ["errorRate"],
+        ["gridSize"],
+        ["rtVariabilityMs", "rtVariability"],
+        ["wrongClickCount", "wrongClicks"],
+        ["nextGridSize"],
+        ["recommendedPaceMs"]
+    ],
+    "balloon-risk": [
+        ["totalBank"],
+        ["adjustedAvgPumps"],
+        ["burstRate"],
+        ["cashoutRate"],
+        ["riskTrend"],
+        ["avgPumps"],
+        ["totalBalloons"]
+    ],
+    nback: [
+        ["nLevel"],
+        ["nextRecommendedN"],
+        ["nextRecommendedSpeedMs"],
+        ["nextRecommendedRounds"],
+        ["hitRate"],
+        ["falseAlarmRate"],
+        ["missRate"],
+        ["correctRejectionRate"]
+    ],
+    corsi: [
+        ["maxSpan"],
+        ["finalSpan"],
+        ["nextStartSpan"],
+        ["nextMode"],
+        ["nextBlockCount"],
+        ["longestCorrectSequence"],
+        ["sequenceMode"],
+        ["orderErrorCount"]
+    ],
+    stroop: [
+        ["stroopEffectMs", "stroopEffect"],
+        ["congruentMeanRtMs", "congruentMeanRT"],
+        ["incongruentMeanRtMs", "incongruentMeanRT"],
+        ["incongruentAccuracy"],
+        ["congruentAccuracy"],
+        ["errorCount"],
+        ["inputMode"]
+    ],
+    flanker: [
+        ["flankerEffectMs", "flankerEffect"],
+        ["incongruentAccuracy"],
+        ["congruentAccuracy"],
+        ["flankerCaptureErrorCount"],
+        ["timeoutCount"],
+        ["directionErrorCount"],
+        ["errorCount", "errors"]
+    ],
+    cpt: [
+        ["hitRate"],
+        ["falseAlarmRate"],
+        ["missRate"],
+        ["rtStdDevMs", "rtStdDev"],
+        ["missCount", "misses"],
+        ["falseAlarmCount", "falseAlarms"],
+        ["correctRejectionRate"]
+    ],
     "base-rate": [
         ["neglectRate", "baseRateNeglectRate", "neglectRatio", "baseRateNeglectRatio", "neglectPct", "baseRateNeglectPct"],
         ["neglectCount", "baseRateNeglectCount", "ignoredBaseRateCount", "baseRateIgnoredCount"]
@@ -53,12 +132,68 @@ const METRIC_LABELS = {
     medianRtMs: "中位RT",
     switchCostMs: "切换成本",
     goAccuracy: "Go准确率",
+    goMeanRtMs: "Go平均RT",
     noGoAccuracy: "No-Go准确率",
     commissionErrors: "误按",
+    commissionErrorRate: "误按率",
     omissionErrors: "漏按",
+    omissionRate: "漏按率",
     perseverativeErrors: "持续错误",
     netScore: "净得分",
     score: "得分",
+    hitRate: "命中率",
+    missRate: "遗漏率",
+    falseAlarmRate: "误报率",
+    correctRejectionRate: "正确拒绝率",
+    dPrime: "d'",
+    criterion: "判别标准",
+    stopSuccessRate: "停止成功率",
+    stopFailureRate: "Stop响应率",
+    ssrtEstimateMs: "SSRT",
+    meanSsdMs: "平均SSD",
+    finalSsdMs: "最终SSD",
+    scanStability: "扫描稳定性",
+    errorRate: "错误率",
+    gridSize: "网格",
+    rtVariabilityMs: "RT波动",
+    wrongClickCount: "误点",
+    nextGridSize: "建议网格",
+    recommendedPaceMs: "建议节奏",
+    totalBank: "总收益",
+    adjustedAvgPumps: "调整后均充",
+    burstRate: "爆炸率",
+    cashoutRate: "兑现率",
+    riskTrend: "风险趋势",
+    avgPumps: "平均充气",
+    totalBalloons: "气球数",
+    nLevel: "N值",
+    nextRecommendedN: "建议N",
+    nextRecommendedSpeedMs: "建议速度",
+    nextRecommendedRounds: "建议轮次",
+    missCount: "遗漏",
+    falseAlarmCount: "误报",
+    maxSpan: "最大广度",
+    finalSpan: "最终广度",
+    nextStartSpan: "建议起始",
+    nextMode: "建议模式",
+    nextBlockCount: "建议方块",
+    longestCorrectSequence: "最长正确序列",
+    sequenceMode: "序列模式",
+    orderErrorCount: "顺序错误",
+    meanResponseDurationMs: "平均复现时长",
+    maxAttemptedSpan: "最高尝试广度",
+    stroopEffectMs: "Stroop效应",
+    congruentMeanRtMs: "一致RT",
+    incongruentMeanRtMs: "不一致RT",
+    congruentAccuracy: "一致准确率",
+    incongruentAccuracy: "不一致准确率",
+    errorCount: "错误",
+    inputMode: "输入模式",
+    flankerEffectMs: "Flanker效应",
+    flankerCaptureErrorCount: "干扰捕获",
+    timeoutCount: "超时",
+    directionErrorCount: "方向错误",
+    rtStdDevMs: "RT标准差",
     neglectRate: "基率忽略率",
     neglectCount: "基率忽略数",
     approxAccuracy: "近似准确率",
@@ -197,6 +332,33 @@ function moduleMetricGroups(session) {
         session && session.gameName
     ].filter(Boolean).join(" ").toLowerCase();
 
+    if (/stop[-_ ]?signal|\bsst\b/.test(moduleText) || moduleText.includes("停止信号")) {
+        return MODULE_METRIC_KEY_GROUPS["stop-signal"];
+    }
+    if (/go[-_ /]?no[-_ /]?go/.test(moduleText) || moduleText.includes("抑制控制")) {
+        return MODULE_METRIC_KEY_GROUPS["go-no-go"];
+    }
+    if (/schulte/.test(moduleText) || moduleText.includes("舒尔特")) {
+        return MODULE_METRIC_KEY_GROUPS.schulte;
+    }
+    if (/balloon[-_ ]?risk|bart/.test(moduleText) || moduleText.includes("气球")) {
+        return MODULE_METRIC_KEY_GROUPS["balloon-risk"];
+    }
+    if (/n[-_ ]?back|nback/.test(moduleText)) {
+        return MODULE_METRIC_KEY_GROUPS.nback;
+    }
+    if (/corsi/.test(moduleText) || moduleText.includes("科西")) {
+        return MODULE_METRIC_KEY_GROUPS.corsi;
+    }
+    if (/stroop/.test(moduleText) || moduleText.includes("斯特鲁普")) {
+        return MODULE_METRIC_KEY_GROUPS.stroop;
+    }
+    if (/flanker/.test(moduleText)) {
+        return MODULE_METRIC_KEY_GROUPS.flanker;
+    }
+    if (/\bcpt\b/.test(moduleText) || moduleText.includes("持续表现") || moduleText.includes("持续注意")) {
+        return MODULE_METRIC_KEY_GROUPS.cpt;
+    }
     if (/base[-_]?rate/.test(moduleText) || moduleText.includes("基率")) {
         return MODULE_METRIC_KEY_GROUPS["base-rate"];
     }

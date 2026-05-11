@@ -235,6 +235,21 @@ document.addEventListener('DOMContentLoaded', () => {
         return `${Math.round(value * 100)}%`;
     }
 
+    function clampNumber(value, min, max) {
+        return Math.min(max, Math.max(min, value));
+    }
+
+    function buildNBackPrescription(summary, loadAssessment, recommendation, nextN, nextSpeedMs, nextRounds, reason) {
+        return {
+            loadAssessment,
+            recommendation,
+            nextRecommendedN: clampNumber(nextN, 0, 5),
+            nextRecommendedSpeedMs: clampNumber(nextSpeedMs, 1000, 5000),
+            nextRecommendedRounds: clampNumber(nextRounds, 5, 100),
+            nextPrescriptionReason: reason
+        };
+    }
+
     function getLoadGuidance(summary) {
         const missRate = ratio(summary.missCount, summary.targetTrials);
         const lowHitRate = summary.targetTrials > 0 && summary.hitRate < 0.6;
@@ -242,37 +257,68 @@ document.addEventListener('DOMContentLoaded', () => {
         const highFalseAlarmRate = summary.nonTargetTrials > 0 && summary.falseAlarmRate >= 0.2;
 
         if (lowHitRate && highFalseAlarmRate) {
-            return {
-                loadAssessment: "tooHigh",
-                recommendation: `当前 n=${summary.nLevel} 同时出现较多遗漏和误报，负荷偏高。下一轮建议先降到 n=${Math.max(0, summary.nLevel - 1)}，或把速度放慢 0.5 秒。`
-            };
+            return buildNBackPrescription(
+                summary,
+                "tooHigh",
+                `当前 n=${summary.nLevel} 同时出现较多遗漏和误报，负荷偏高。下一轮建议先降到 n=${Math.max(0, summary.nLevel - 1)}，或把速度放慢 0.5 秒。`,
+                summary.nLevel - 1,
+                summary.stimulusDurationMs + 500,
+                summary.totalTrials,
+                "命中率偏低且误报率偏高，先降低记忆负荷并放慢刺激节奏。"
+            );
         }
 
         if (highMissRate || lowHitRate) {
-            return {
-                loadAssessment: "possiblyHigh",
-                recommendation: `当前 n=${summary.nLevel} 对更新保持有压力，主要问题是目标遗漏。下一轮建议保持或下调 N，并优先练习“新刺激进入、旧刺激移出”的更新节奏。`
-            };
+            const nextN = summary.accuracy < 0.65 ? summary.nLevel - 1 : summary.nLevel;
+            return buildNBackPrescription(
+                summary,
+                "possiblyHigh",
+                `当前 n=${summary.nLevel} 对更新保持有压力，主要问题是目标遗漏。下一轮建议保持或下调 N，并优先练习“新刺激进入、旧刺激移出”的更新节奏。`,
+                nextN,
+                summary.stimulusDurationMs + 500,
+                summary.totalTrials,
+                "目标遗漏较多，下一轮优先稳定命中率，再增加 N 或提速。"
+            );
         }
 
         if (highFalseAlarmRate || summary.falseAlarmCount >= 3) {
-            return {
-                loadAssessment: "unstableControl",
-                recommendation: `当前 n=${summary.nLevel} 负荷未必过高，但匹配判断偏急。下一轮建议维持 N，确认当前刺激等于目标位置后再按，先降低误报。`
-            };
+            return buildNBackPrescription(
+                summary,
+                "unstableControl",
+                `当前 n=${summary.nLevel} 负荷未必过高，但匹配判断偏急。下一轮建议维持 N，确认当前刺激等于目标位置后再按，先降低误报。`,
+                summary.nLevel,
+                summary.stimulusDurationMs + 500,
+                summary.totalTrials,
+                "误报率偏高，保持 N 并放慢节奏以强化反应抑制。"
+            );
         }
 
         if (summary.hitRate >= 0.8 && summary.falseAlarmRate <= 0.1 && summary.accuracy >= 0.8) {
-            return {
-                loadAssessment: "readyToIncrease",
-                recommendation: `当前 n=${summary.nLevel} 负荷可控。下一轮可以增加 5-10 轮，或尝试 n=${Math.min(5, summary.nLevel + 1)}。`
-            };
+            const nextN = summary.nLevel < 5 ? summary.nLevel + 1 : summary.nLevel;
+            const nextRounds = summary.nLevel < 5 ? summary.totalTrials : summary.totalTrials + 5;
+            const nextSpeedMs = summary.nLevel < 5
+                ? summary.stimulusDurationMs
+                : summary.stimulusDurationMs - 250;
+            return buildNBackPrescription(
+                summary,
+                "readyToIncrease",
+                `当前 n=${summary.nLevel} 负荷可控。下一轮可以增加 5-10 轮，或尝试 n=${Math.min(5, summary.nLevel + 1)}。`,
+                nextN,
+                nextSpeedMs,
+                nextRounds,
+                "命中率、误报率和总体准确率均达标，可以小幅增加负荷。"
+            );
         }
 
-        return {
-            loadAssessment: "appropriate",
-            recommendation: `当前 n=${summary.nLevel} 负荷基本合适。下一轮建议维持 N，继续提高命中稳定性并控制误报。`
-        };
+        return buildNBackPrescription(
+            summary,
+            "appropriate",
+            `当前 n=${summary.nLevel} 负荷基本合适。下一轮建议维持 N，继续提高命中稳定性并控制误报。`,
+            summary.nLevel,
+            summary.stimulusDurationMs,
+            summary.totalTrials,
+            "当前负荷基本匹配表现，下一轮保持设置以巩固稳定性。"
+        );
     }
 
     function buildSummary() {
@@ -336,7 +382,9 @@ document.addEventListener('DOMContentLoaded', () => {
     function buildTrainingFeedback(summary) {
         const omissionText = `目标遗漏 ${summary.missCount}/${summary.targetTrials}，命中率 ${formatPercent(summary.hitRate)}`;
         const falseAlarmText = `误报 ${summary.falseAlarmCount}/${summary.nonTargetTrials}，误报率 ${formatPercent(summary.falseAlarmRate)}`;
-        return `${omissionText}；${falseAlarmText}。${summary.recommendation}`;
+        const speedSeconds = (summary.nextRecommendedSpeedMs / 1000).toFixed(2).replace(/\.?0+$/, "");
+        const nextText = `下一轮处方：N=${summary.nextRecommendedN}，速度=${speedSeconds}秒，轮次=${summary.nextRecommendedRounds}。${summary.nextPrescriptionReason}`;
+        return `${omissionText}；${falseAlarmText}。${summary.recommendation} ${nextText}`;
     }
 
     function serializeTrial(item, index) {
@@ -643,6 +691,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 isAdaptive: finalSummary.isAdaptive,
                 nProgression: finalSummary.nProgression,
                 loadAssessment: finalSummary.loadAssessment,
+                nextRecommendedN: finalSummary.nextRecommendedN,
+                nextRecommendedSpeedMs: finalSummary.nextRecommendedSpeedMs,
+                nextRecommendedRounds: finalSummary.nextRecommendedRounds,
+                nextPrescriptionReason: finalSummary.nextPrescriptionReason,
                 seed: sessionSeed,
                 contentVersion: CONTENT_VERSION
             },

@@ -62,6 +62,8 @@
    工作记忆 P0-B 训练化实施记录：N-Back、Corsi 的训练目标、数据契约、验证结果、残余风险和下一步。
 25. [25-inhibition-search-risk-p0c-p0d-report-20260511.md](25-inhibition-search-risk-p0c-p0d-report-20260511.md)
    抑制控制、视觉搜索与风险决策 P0-C/P0-D 实施记录：Stop Signal、Go/No-Go、Schulte、BART 的范式指标、数据契约、反馈闭环和验收结果。
+26. [26-report-smoke-and-adaptive-prescription-20260511.md](26-report-smoke-and-adaptive-prescription-20260511.md)
+   报告展示、Smoke 门禁与自适应处方实施记录：报告页指标优先级、关键页面静态验收、N-Back/Corsi 下一轮训练处方。
 
 ## 源汇总镜像
 

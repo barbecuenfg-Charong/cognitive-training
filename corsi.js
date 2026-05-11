@@ -238,6 +238,68 @@ document.addEventListener('DOMContentLoaded', () => {
         return Math.round(total / durations.length);
     }
 
+    function clampNumber(value, min, max) {
+        return Math.min(max, Math.max(min, value));
+    }
+
+    function buildCorsiPrescription(summary) {
+        const currentStart = clampNumber(summary.startSpan, 2, 5);
+        const currentBlockCount = clampNumber(summary.blockCount, 2, 20);
+
+        if (summary.terminationReason === 'manual_stop' || summary.totalTrials === 0) {
+            return {
+                nextStartSpan: currentStart,
+                nextMode: summary.sequenceMode,
+                nextBlockCount: currentBlockCount,
+                nextPrescriptionReason: '本轮手动停止或样本不足，下一轮先复用当前设置完成可计入序列。'
+            };
+        }
+
+        if (summary.accuracy >= 0.8 && summary.sequenceMode === 'forward' && summary.finalSpan >= 6) {
+            return {
+                nextStartSpan: currentStart,
+                nextMode: 'backward',
+                nextBlockCount: currentBlockCount,
+                nextPrescriptionReason: '正向广度和正确率已稳定，下一轮切换逆向回忆增加顺序操作负荷。'
+            };
+        }
+
+        if (summary.accuracy >= 0.75) {
+            return {
+                nextStartSpan: clampNumber(summary.startSpan + 1, 2, 5),
+                nextMode: summary.sequenceMode,
+                nextBlockCount: currentBlockCount,
+                nextPrescriptionReason: '正确率达标，下一轮小幅提高起始长度并保持模式与方块数量。'
+            };
+        }
+
+        if (summary.orderErrorCount > summary.correctCount) {
+            const nextStart = clampNumber(Math.min(summary.startSpan, Math.max(2, summary.finalSpan || summary.startSpan - 1)), 2, 5);
+            return {
+                nextStartSpan: nextStart,
+                nextMode: 'forward',
+                nextBlockCount: currentBlockCount,
+                nextPrescriptionReason: '顺序错误多于正确序列，下一轮优先用正向模式稳定点击顺序。'
+            };
+        }
+
+        if (summary.accuracy < 0.5 && summary.finalSpan <= summary.startSpan) {
+            return {
+                nextStartSpan: clampNumber(summary.startSpan - 1, 2, 5),
+                nextMode: summary.sequenceMode === 'backward' ? 'forward' : summary.sequenceMode,
+                nextBlockCount: currentBlockCount,
+                nextPrescriptionReason: '正确率偏低且最终广度未超过起始长度，下一轮降低起始长度以恢复稳定完成率。'
+            };
+        }
+
+        return {
+            nextStartSpan: currentStart,
+            nextMode: summary.sequenceMode,
+            nextBlockCount: currentBlockCount,
+            nextPrescriptionReason: '当前负荷基本合适，下一轮保持设置并继续巩固空间路径和点击顺序。'
+        };
+    }
+
     function buildSummary() {
         const totalTrials = trialLog.length;
         const correctTrials = trialLog.filter(trial => trial.correct);
@@ -258,7 +320,7 @@ document.addEventListener('DOMContentLoaded', () => {
             errorType: trial.errorType
         }));
 
-        return {
+        const summary = {
             totalTrials,
             correctCount,
             accuracy,
@@ -280,6 +342,11 @@ document.addEventListener('DOMContentLoaded', () => {
             seed: sessionSeed,
             contentVersion: CONTENT_VERSION,
             blockLayout: cloneBlockLayout()
+        };
+
+        return {
+            ...summary,
+            ...buildCorsiPrescription(summary)
         };
     }
 
@@ -315,6 +382,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 meanResponseDurationMs: summary.meanResponseDurationMs,
                 orderErrorCount: summary.orderErrorCount,
                 maxAttemptedSpan: summary.maxAttemptedSpan,
+                nextStartSpan: summary.nextStartSpan,
+                nextMode: summary.nextMode,
+                nextBlockCount: summary.nextBlockCount,
+                nextPrescriptionReason: summary.nextPrescriptionReason,
                 seed: sessionSeed,
                 contentVersion: CONTENT_VERSION
             },
@@ -504,20 +575,8 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function getNextRoundAdvice(summary) {
-        if (summary.totalTrials === 0) {
-            return '先完成至少一个序列，再根据正确率调整起始长度。';
-        }
-        if (summary.accuracy >= 0.8 && summary.sequenceMode === 'forward' && summary.finalSpan >= 6) {
-            return '正向广度已经稳定，可以保持方块数量不变，尝试逆向回忆来增加顺序操作负荷。';
-        }
-        if (summary.accuracy >= 0.75) {
-            const nextStart = Math.min(5, Math.max(2, summary.startSpan + 1));
-            return `下一轮可将起始长度调到 ${nextStart}，保持同样方块数量，观察错误是否集中在末端位置。`;
-        }
-        if (summary.orderErrorCount > summary.correctCount) {
-            return '下一轮保持当前起始长度，先用正向模式稳定空间路径，再提高长度或切换逆向。';
-        }
-        return '下一轮保持当前设置，重点在每次点亮时默记空间路径和点击顺序。';
+        const modeText = summary.nextMode === 'backward' ? '逆向回忆' : '正向回忆';
+        return `起始长度=${summary.nextStartSpan}，模式=${modeText}，方块数量=${summary.nextBlockCount}。${summary.nextPrescriptionReason}`;
     }
 
     function buildResultFeedback(summary) {
