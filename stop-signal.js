@@ -1,15 +1,19 @@
 const MODULE_ID = "stop-signal";
 const GAME_NAME = "停止信号任务";
-const CONTENT_VERSION = "stop-signal-p0c-inhibition-v1";
+const CONTENT_VERSION = "stop-signal-p0c-inhibition-v2";
 
 const TOTAL_TRIALS = 40;
 const STOP_PROBABILITY = 0.25;
+const STOP_TRIAL_COUNT = Math.round(TOTAL_TRIALS * STOP_PROBABILITY);
+const GO_TRIAL_COUNT = TOTAL_TRIALS - STOP_TRIAL_COUNT;
 const RESPONSE_WINDOW_MS = 1200;
 const INTER_TRIAL_MS = 700;
 const INITIAL_SSD_MS = 250;
 const SSD_STEP_MS = 50;
 const SSD_MIN_MS = 50;
 const SSD_MAX_MS = 900;
+const MAX_CONSECUTIVE_STOP_TRIALS = 2;
+const MAX_CONSECUTIVE_GO_TRIALS = 8;
 
 let isGameActive = false;
 let trialIndex = 0;
@@ -97,32 +101,107 @@ function shuffleInPlace(list) {
 }
 
 function buildTrialPlan() {
-    const stopCount = Math.round(TOTAL_TRIALS * STOP_PROBABILITY);
-    const goCount = TOTAL_TRIALS - stopCount;
-    const trialTypes = [];
-    const directions = [];
+    const trialTypes = buildTrialTypeSequence();
+    const directionQueues = {
+        go: buildBalancedDirectionQueue(GO_TRIAL_COUNT),
+        stop: buildBalancedDirectionQueue(STOP_TRIAL_COUNT)
+    };
 
-    for (let i = 0; i < goCount; i += 1) {
-        trialTypes.push("go");
-    }
-    for (let i = 0; i < stopCount; i += 1) {
-        trialTypes.push("stop");
-    }
-    for (let i = 0; i < TOTAL_TRIALS; i += 1) {
-        directions.push(i % 2 === 0 ? "left" : "right");
+    return trialTypes.map((trialType, index) => {
+        const direction = directionQueues[trialType].pop();
+
+        return {
+            index,
+            trialIndex: index,
+            trialType,
+            isStopTrial: trialType === "stop",
+            direction,
+            correctResponse: direction
+        };
+    });
+}
+
+function buildTrialTypeSequence() {
+    const baseTypes = [
+        ...Array.from({ length: GO_TRIAL_COUNT }, () => "go"),
+        ...Array.from({ length: STOP_TRIAL_COUNT }, () => "stop")
+    ];
+
+    for (let attempt = 0; attempt < 500; attempt += 1) {
+        const candidate = shuffleInPlace(baseTypes.slice());
+        if (
+            candidate[0] === "go"
+            && !hasRunLongerThan(candidate, "stop", MAX_CONSECUTIVE_STOP_TRIALS)
+            && !hasRunLongerThan(candidate, "go", MAX_CONSECUTIVE_GO_TRIALS)
+        ) {
+            return candidate;
+        }
     }
 
-    shuffleInPlace(trialTypes);
-    shuffleInPlace(directions);
+    return buildGreedyTrialTypeSequence();
+}
 
-    return trialTypes.map((trialType, index) => ({
-        index,
-        trialIndex: index,
-        trialType,
-        isStopTrial: trialType === "stop",
-        direction: directions[index],
-        correctResponse: directions[index]
-    }));
+function buildGreedyTrialTypeSequence() {
+    const sequence = [];
+    let goRemaining = GO_TRIAL_COUNT;
+    let stopRemaining = STOP_TRIAL_COUNT;
+
+    while (sequence.length < TOTAL_TRIALS) {
+        const stopRun = countTrailingRun(sequence, "stop");
+        const goRun = countTrailingRun(sequence, "go");
+        const remaining = goRemaining + stopRemaining;
+        let nextType = rng() < ratio(stopRemaining, remaining) ? "stop" : "go";
+
+        if (goRemaining === 0) {
+            nextType = "stop";
+        } else if (sequence.length === 0 || stopRemaining === 0 || stopRun >= MAX_CONSECUTIVE_STOP_TRIALS) {
+            nextType = "go";
+        } else if (goRun >= MAX_CONSECUTIVE_GO_TRIALS) {
+            nextType = "stop";
+        }
+
+        if (nextType === "stop") {
+            stopRemaining -= 1;
+        } else {
+            goRemaining -= 1;
+        }
+        sequence.push(nextType);
+    }
+
+    return sequence;
+}
+
+function buildBalancedDirectionQueue(count) {
+    const leftCount = Math.floor(count / 2) + (count % 2 === 1 && rng() < 0.5 ? 1 : 0);
+    const rightCount = count - leftCount;
+    const directions = [
+        ...Array.from({ length: leftCount }, () => "left"),
+        ...Array.from({ length: rightCount }, () => "right")
+    ];
+
+    return shuffleInPlace(directions);
+}
+
+function hasRunLongerThan(sequence, trialType, maxRunLength) {
+    let runLength = 0;
+    for (let i = 0; i < sequence.length; i += 1) {
+        runLength = sequence[i] === trialType ? runLength + 1 : 0;
+        if (runLength > maxRunLength) {
+            return true;
+        }
+    }
+    return false;
+}
+
+function countTrailingRun(sequence, trialType) {
+    let count = 0;
+    for (let i = sequence.length - 1; i >= 0; i -= 1) {
+        if (sequence[i] !== trialType) {
+            break;
+        }
+        count += 1;
+    }
+    return count;
 }
 
 function schedule(callback, delay) {
@@ -138,6 +217,24 @@ function clearAllTimers() {
 
 function clampSsd(value) {
     return Math.max(SSD_MIN_MS, Math.min(SSD_MAX_MS, value));
+}
+
+function buildStaircaseState(beforeMs, afterMs, outcome, intendedAdjustmentMs) {
+    const actualAdjustmentMs = Number.isFinite(afterMs) && Number.isFinite(beforeMs)
+        ? afterMs - beforeMs
+        : 0;
+
+    return {
+        beforeMs,
+        afterMs,
+        stepMs: SSD_STEP_MS,
+        minMs: SSD_MIN_MS,
+        maxMs: SSD_MAX_MS,
+        outcome,
+        intendedAdjustmentMs,
+        actualAdjustmentMs,
+        clamped: actualAdjustmentMs !== intendedAdjustmentMs
+    };
 }
 
 function ratio(numerator, denominator) {
@@ -156,12 +253,24 @@ function averageFloat(values) {
     return validValues.reduce((sum, value) => sum + value, 0) / validValues.length;
 }
 
+function averageRoundedOrNull(values) {
+    const value = averageFloat(values);
+    return Number.isFinite(value) ? Math.round(value) : null;
+}
+
 function formatPercent(value) {
     return `${Math.round(value * 100)}%`;
 }
 
 function formatMs(value) {
     return Number.isFinite(value) ? `${value}ms` : "--";
+}
+
+function formatSignedMs(value) {
+    if (!Number.isFinite(value)) {
+        return "--";
+    }
+    return value > 0 ? `+${value}ms` : `${value}ms`;
 }
 
 function directionToArrow(direction) {
@@ -179,7 +288,8 @@ function keyToDirection(code) {
 }
 
 function createRuntimeTrial(planItem) {
-    const plannedSsd = planItem.isStopTrial ? currentSsdMs : null;
+    const ssdBeforeTrial = currentSsdMs;
+    const plannedSsd = planItem.isStopTrial ? ssdBeforeTrial : null;
     const now = new Date();
 
     return {
@@ -191,8 +301,10 @@ function createRuntimeTrial(planItem) {
         direction: planItem.direction,
         correctResponse: planItem.correctResponse,
         plannedSsd,
-        ssdBeforeTrial: currentSsdMs,
-        ssdAfterTrial: null,
+        ssdMs: ssdBeforeTrial,
+        signalDelay: plannedSsd,
+        ssdBeforeTrial,
+        ssdAfterTrial: ssdBeforeTrial,
         responseWindowMs: RESPONSE_WINDOW_MS,
         stopSignalShown: false,
         stopSignalShownAtMs: null,
@@ -203,6 +315,13 @@ function createRuntimeTrial(planItem) {
         success: null,
         correct: null,
         classification: null,
+        errorType: null,
+        staircaseState: buildStaircaseState(
+            ssdBeforeTrial,
+            ssdBeforeTrial,
+            planItem.isStopTrial ? "pendingStopOutcome" : "goTrialNoAdjustment",
+            0
+        ),
         timedOut: false,
         startedAt: now.toISOString(),
         finishedAt: null,
@@ -220,6 +339,8 @@ function serializeTrial(trial) {
         direction: trial.direction,
         correctResponse: trial.correctResponse,
         plannedSsd: trial.plannedSsd,
+        ssdMs: trial.ssdMs,
+        signalDelay: trial.signalDelay,
         ssdBeforeTrial: trial.ssdBeforeTrial,
         ssdAfterTrial: trial.ssdAfterTrial,
         responseWindowMs: trial.responseWindowMs,
@@ -232,6 +353,8 @@ function serializeTrial(trial) {
         success: trial.success,
         correct: trial.correct,
         classification: trial.classification,
+        errorType: trial.errorType,
+        staircaseState: trial.staircaseState ? { ...trial.staircaseState } : null,
         timedOut: trial.timedOut,
         startedAt: trial.startedAt,
         finishedAt: trial.finishedAt
@@ -249,12 +372,17 @@ function completeCurrentTrial(fields) {
 }
 
 function updateSsdAfterStop(success) {
-    if (success) {
-        currentSsdMs = clampSsd(currentSsdMs + SSD_STEP_MS);
-    } else {
-        currentSsdMs = clampSsd(currentSsdMs - SSD_STEP_MS);
-    }
-    return currentSsdMs;
+    const beforeMs = currentSsdMs;
+    const intendedAdjustmentMs = success ? SSD_STEP_MS : -SSD_STEP_MS;
+    const afterMs = clampSsd(beforeMs + intendedAdjustmentMs);
+    currentSsdMs = afterMs;
+
+    return buildStaircaseState(
+        beforeMs,
+        afterMs,
+        success ? "stopSuccessIncreaseSsd" : "stopFailureDecreaseSsd",
+        intendedAdjustmentMs
+    );
 }
 
 function startGame() {
@@ -322,7 +450,8 @@ function handleResponse(direction) {
     currentTrial.responded = true;
 
     if (currentTrial.isStopTrial) {
-        const nextSsd = updateSsdAfterStop(false);
+        const staircaseState = updateSsdAfterStop(false);
+        const errorType = stopActive ? "stopCommissionAfterSignal" : "stopCommissionBeforeSignal";
         completeCurrentTrial({
             actualResponse: direction,
             response: direction,
@@ -330,8 +459,10 @@ function handleResponse(direction) {
             success: false,
             correct: false,
             classification: stopActive ? "stopFailureAfterSignal" : "stopFailureBeforeSignal",
+            errorType,
             timedOut: false,
-            ssdAfterTrial: nextSsd
+            ssdAfterTrial: staircaseState.afterMs,
+            staircaseState
         });
     } else {
         const correct = direction === currentTrial.direction;
@@ -342,6 +473,7 @@ function handleResponse(direction) {
             success: correct,
             correct,
             classification: correct ? "goCorrect" : "goDirectionError",
+            errorType: correct ? null : "choiceError",
             timedOut: false,
             ssdAfterTrial: currentSsdMs
         });
@@ -361,7 +493,7 @@ function finalizeTrial() {
     }
 
     if (currentTrial.isStopTrial) {
-        const nextSsd = updateSsdAfterStop(true);
+        const staircaseState = updateSsdAfterStop(true);
         completeCurrentTrial({
             actualResponse: "none",
             response: "none",
@@ -370,8 +502,10 @@ function finalizeTrial() {
             success: true,
             correct: true,
             classification: "stopSuccess",
+            errorType: null,
             timedOut: true,
-            ssdAfterTrial: nextSsd
+            ssdAfterTrial: staircaseState.afterMs,
+            staircaseState
         });
     } else {
         completeCurrentTrial({
@@ -382,6 +516,7 @@ function finalizeTrial() {
             success: false,
             correct: false,
             classification: "goOmission",
+            errorType: "goOmission",
             timedOut: true,
             ssdAfterTrial: currentSsdMs
         });
@@ -430,12 +565,56 @@ function buildSsdTrajectory() {
             index: trial.index,
             trialIndex: trial.trialIndex,
             plannedSsd: trial.plannedSsd,
+            ssdMs: trial.ssdMs,
+            signalDelay: trial.signalDelay,
             ssdBeforeTrial: trial.ssdBeforeTrial,
             ssdAfterTrial: trial.ssdAfterTrial,
+            staircaseState: trial.staircaseState ? { ...trial.staircaseState } : null,
             success: trial.success,
             classification: trial.classification,
+            errorType: trial.errorType,
             rtMs: trial.rtMs
         }));
+}
+
+function countDirections(trials) {
+    return trials.reduce((acc, trial) => {
+        acc[trial.direction] = (acc[trial.direction] || 0) + 1;
+        return acc;
+    }, { left: 0, right: 0 });
+}
+
+function computePostStopSlowing() {
+    const postStopGoRts = [];
+    const postGoGoRts = [];
+
+    for (let i = 1; i < trialLog.length; i += 1) {
+        const trial = trialLog[i];
+        const previousTrial = trialLog[i - 1];
+        if (trial.trialType !== "go" || trial.classification !== "goCorrect") {
+            continue;
+        }
+
+        if (previousTrial.trialType === "stop") {
+            postStopGoRts.push(trial.rtMs);
+        } else if (previousTrial.trialType === "go") {
+            postGoGoRts.push(trial.rtMs);
+        }
+    }
+
+    const postStopGoMeanRtMs = averageRoundedOrNull(postStopGoRts);
+    const postGoGoMeanRtMs = averageRoundedOrNull(postGoGoRts);
+    const postStopSlowingMs = Number.isFinite(postStopGoMeanRtMs) && Number.isFinite(postGoGoMeanRtMs)
+        ? postStopGoMeanRtMs - postGoGoMeanRtMs
+        : null;
+
+    return {
+        postStopGoMeanRtMs,
+        postGoGoMeanRtMs,
+        postStopSlowingMs,
+        postStopGoSampleCount: postStopGoRts.length,
+        postGoGoSampleCount: postGoGoRts.length
+    };
 }
 
 function estimateSsrt(goRtSamples, stopTrials) {
@@ -501,11 +680,15 @@ function buildSummary() {
     const goCorrectTrials = goTrials.filter((trial) => trial.classification === "goCorrect");
     const goResponseTrials = goTrials.filter((trial) => trial.responded);
     const stopSuccessTrials = stopTrials.filter((trial) => trial.classification === "stopSuccess");
-    const goMeanRtMs = average(goCorrectTrials.map((trial) => trial.rtMs));
-    const goResponseMeanRtMs = average(goResponseTrials.map((trial) => trial.rtMs));
+    const goOmissionCount = goTrials.filter((trial) => trial.classification === "goOmission").length;
+    const goChoiceErrorCount = goTrials.filter((trial) => trial.errorType === "choiceError").length;
+    const goMeanRtMs = averageRoundedOrNull(goCorrectTrials.map((trial) => trial.rtMs));
+    const goResponseMeanRtMs = averageRoundedOrNull(goResponseTrials.map((trial) => trial.rtMs));
     const stopSuccessRate = ratio(stopSuccessTrials.length, stopTrials.length);
     const goAccuracy = ratio(goCorrectTrials.length, goTrials.length);
+    const goResponseAccuracy = ratio(goCorrectTrials.length, goResponseTrials.length);
     const ssdTrajectory = buildSsdTrajectory();
+    const postStopSlowing = computePostStopSlowing();
     const ssrt = estimateSsrt(
         goCorrectTrials.map((trial) => trial.rtMs),
         stopTrials
@@ -516,9 +699,18 @@ function buildSummary() {
         plannedTrials: TOTAL_TRIALS,
         goTrials: goTrials.length,
         stopTrials: stopTrials.length,
+        plannedGoTrials: GO_TRIAL_COUNT,
+        plannedStopTrials: STOP_TRIAL_COUNT,
+        plannedStopProbability: STOP_PROBABILITY,
+        actualStopProbability: ratio(stopTrials.length, totalTrials),
+        goDirectionBalance: countDirections(goTrials),
+        stopDirectionBalance: countDirections(stopTrials),
         goCorrectCount: goCorrectTrials.length,
-        goOmissionCount: goTrials.filter((trial) => trial.classification === "goOmission").length,
-        goDirectionErrorCount: goTrials.filter((trial) => trial.classification === "goDirectionError").length,
+        goOmissionCount,
+        goOmissionRate: ratio(goOmissionCount, goTrials.length),
+        goDirectionErrorCount: goChoiceErrorCount,
+        goChoiceErrorCount,
+        goChoiceErrorRate: ratio(goChoiceErrorCount, goTrials.length),
         stopSuccessCount: stopSuccessTrials.length,
         stopFailureCount: stopTrials.length - stopSuccessTrials.length,
         stopFailureBeforeSignalCount: stopTrials.filter((trial) => trial.classification === "stopFailureBeforeSignal").length,
@@ -528,18 +720,23 @@ function buildSummary() {
         goAccuracy,
         accuracy: ratio(trialLog.filter((trial) => trial.correct).length, totalTrials),
         goMeanRtMs,
+        goRtMs: goMeanRtMs,
         meanRtMs: goMeanRtMs,
         goResponseMeanRtMs,
+        goResponseAccuracy,
         stopSuccessRate,
         stopProbability: STOP_PROBABILITY,
         responseWindowMs: RESPONSE_WINDOW_MS,
         initialSsdMs: INITIAL_SSD_MS,
         finalSsdMs: currentSsdMs,
+        finalSSD: currentSsdMs,
         ssdStepMs: SSD_STEP_MS,
         ssdMinMs: SSD_MIN_MS,
         ssdMaxMs: SSD_MAX_MS,
         meanSsdMs: ssrt.meanSsdMs,
+        meanSSD: ssrt.meanSsdMs,
         ssdTrajectory,
+        ...postStopSlowing,
         classificationCounts: countByClassification(),
         ssrtEstimateMs: ssrt.ssrtMs,
         ssrtEstimateAvailable: ssrt.ssrtEstimateAvailable,
@@ -567,6 +764,9 @@ function buildTrainingFeedback(summary) {
         ? `Go 平均正确反应 ${summary.goMeanRtMs}ms`
         : "Go 正确反应样本不足";
     const stopText = `停止成功率 ${formatPercent(summary.stopSuccessRate)}（${summary.stopSuccessCount}/${summary.stopTrials}）`;
+    const slowingText = Number.isFinite(summary.postStopSlowingMs)
+        ? `停后 Go 反应变化 ${formatSignedMs(summary.postStopSlowingMs)}`
+        : "停后减速样本不足";
     const methodText = summary.ssrtEstimateAvailable
         ? `integration-percentile 估计 SSRT ${summary.ssrtEstimateMs}ms`
         : "本轮 stop 失败率过于极端或样本不足，未给出稳定 SSRT 数值";
@@ -582,9 +782,11 @@ function buildTrainingFeedback(summary) {
         advice = "下一轮建议：抑制成功率偏高，系统会继续增加 SSD；请维持 Go 速度，让停止信号更接近真实反应取消边界。";
     } else if (summary.goMeanRtMs > 0 && summary.goMeanRtMs <= 450 && summary.stopSuccessRate < 0.4) {
         advice = "下一轮建议：Go 反应很快但抑制偏低，尝试减少抢按惯性，看到红色停止信号后立刻中断动作。";
+    } else if (summary.postStopSlowingMs >= 150) {
+        advice = "下一轮建议：停后减速较明显，说明停止信号影响了后续 Go 反应；继续保持快速、准确的 Go 基线。";
     }
 
-    return `${speedText}；${stopText}。Stop Signal 训练的关键不是单纯越快越好，也不是停止成功率越高越好，而是在快速反应和及时抑制之间找到边界。${methodText}。${advice}`;
+    return `${speedText}；${stopText}；${slowingText}。Stop Signal 训练的关键不是单纯越快越好，也不是停止成功率越高越好，而是在快速反应和及时抑制之间找到边界。${methodText}。${advice}`;
 }
 
 function buildSsrtMethodText(summary) {
@@ -615,6 +817,15 @@ function saveTrainingSession(finishedAt, summary) {
         metrics: {
             score,
             goAccuracy: formatPercent(summary.goAccuracy),
+            goAccuracyValue: summary.goAccuracy,
+            goResponseAccuracy: formatPercent(summary.goResponseAccuracy),
+            goResponseAccuracyValue: summary.goResponseAccuracy,
+            goOmissionRate: formatPercent(summary.goOmissionRate),
+            goOmissionRateValue: summary.goOmissionRate,
+            goOmissionCount: summary.goOmissionCount,
+            goChoiceErrorRate: formatPercent(summary.goChoiceErrorRate),
+            goChoiceErrorRateValue: summary.goChoiceErrorRate,
+            goChoiceErrorCount: summary.goChoiceErrorCount,
             goMeanRT: formatMs(summary.goMeanRtMs),
             goMeanRtMs: summary.goMeanRtMs,
             stopSuccessRate: formatPercent(summary.stopSuccessRate),
@@ -626,8 +837,13 @@ function saveTrainingSession(finishedAt, summary) {
             meanSSD: formatMs(summary.meanSsdMs),
             meanSsdMs: summary.meanSsdMs,
             finalSSD: `${summary.finalSsdMs}ms`,
+            finalSsdMs: summary.finalSsdMs,
             ssdTrajectory: summary.ssdTrajectory,
             pRespondOnStop: summary.pRespondOnStop,
+            postStopSlowing: formatSignedMs(summary.postStopSlowingMs),
+            postStopSlowingMs: summary.postStopSlowingMs,
+            postStopGoMeanRtMs: summary.postStopGoMeanRtMs,
+            postGoGoMeanRtMs: summary.postGoGoMeanRtMs,
             seed: sessionSeed,
             contentVersion: CONTENT_VERSION
         },
@@ -655,6 +871,18 @@ function endGame() {
     document.getElementById("result-stop-acc").textContent = formatPercent(summary.stopSuccessRate);
     document.getElementById("result-go-rt").textContent = formatMs(summary.goMeanRtMs);
     document.getElementById("result-ssrt").textContent = formatMs(summary.ssrtEstimateMs);
+    const resultMeanSsdEl = document.getElementById("result-mean-ssd");
+    const resultGoOmissionEl = document.getElementById("result-go-omission");
+    const resultPostStopSlowingEl = document.getElementById("result-post-stop-slowing");
+    if (resultMeanSsdEl) {
+        resultMeanSsdEl.textContent = formatMs(summary.meanSsdMs);
+    }
+    if (resultGoOmissionEl) {
+        resultGoOmissionEl.textContent = formatPercent(summary.goOmissionRate);
+    }
+    if (resultPostStopSlowingEl) {
+        resultPostStopSlowingEl.textContent = formatSignedMs(summary.postStopSlowingMs);
+    }
     if (resultFeedbackEl) {
         resultFeedbackEl.textContent = feedback;
     }

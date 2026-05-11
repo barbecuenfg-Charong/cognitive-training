@@ -9,6 +9,11 @@ document.addEventListener('DOMContentLoaded', () => {
     const finalTimeDisplay = document.getElementById('final-time');
     const finalGradeDisplay = document.getElementById('final-grade');
     const totalNumbersInput = document.getElementById('total-numbers');
+    const distractorStrengthInput = document.getElementById('distractor-strength');
+    const visualNoiseInput = document.getElementById('visual-noise');
+    const targetSimilarityInput = document.getElementById('target-similarity');
+    const focusBlockDisplay = document.getElementById('focus-block');
+    const focusLoadDisplay = document.getElementById('focus-load');
 
     // Check if D3 is loaded
     if (typeof d3 === 'undefined') {
@@ -31,6 +36,24 @@ document.addEventListener('DOMContentLoaded', () => {
     let trials = [];
     let targetPresentedAt = 0;
     let lastResponseAt = 0;
+    const BLOCK_SIZE = 20;
+    const MIN_DEADLINE_MS = 2500;
+    const MAX_DEADLINE_MS = 9500;
+    let adaptiveState = null;
+    let blockSummaries = [];
+    let loadHistory = [];
+    let targetDeadlineTimer = null;
+    let omittedTargets = new Set();
+    let completedTargets = new Set();
+    let targetConditions = new Map();
+    let cellByNumber = new Map();
+    let textByNumber = new Map();
+    let cellMetadata = new Map();
+    let textGroupSelection = null;
+    let noiseGroupSelection = null;
+    let interferenceGroupSelection = null;
+    let layoutBounds = { width: 0, height: 0 };
+    let activeTargetCondition = null;
 
     startBtn.addEventListener('click', startGame);
     restartBtn.addEventListener('click', () => {
@@ -53,6 +76,13 @@ document.addEventListener('DOMContentLoaded', () => {
         e.target.value = val;
     });
 
+    [distractorStrengthInput, visualNoiseInput, targetSimilarityInput].forEach(input => {
+        if (!input) return;
+        input.addEventListener('input', () => {
+            input.value = normalizeRangeValue(input.value, 0, 100);
+        });
+    });
+
     function startGame() {
         if (isPlaying) return;
         
@@ -61,6 +91,7 @@ document.addEventListener('DOMContentLoaded', () => {
         
         try {
             resetGame();
+            initializeTrainingState();
             
             // Wait for layout calculation
             setTimeout(() => {
@@ -71,14 +102,15 @@ document.addEventListener('DOMContentLoaded', () => {
                     sessionSaved = false;
                     trials = [];
                     startTime = now;
-                    targetPresentedAt = now;
                     lastResponseAt = now;
                     isPlaying = true;
+                    beginTargetTrial(currentTarget, now);
                     timerInterval = setInterval(updateTimer, 1000);
                     overlay.classList.add('hidden');
                     startBtn.disabled = true;
                     startBtn.textContent = "进行中...";
                     totalNumbersInput.disabled = true; // Disable input during game
+                    setLoadInputsDisabled(true);
                 } catch (e) {
                     console.error("Layout generation failed:", e);
                     alert("生成布局时出错: " + e.message);
@@ -96,6 +128,7 @@ document.addEventListener('DOMContentLoaded', () => {
         targetDisplay.textContent = currentTarget;
         timerDisplay.textContent = "00:00";
         if (timerInterval) clearInterval(timerInterval);
+        clearTargetDeadline();
         svg.selectAll("*").remove(); // Clear SVG
         isPlaying = false;
         sessionStartedAt = null;
@@ -103,9 +136,25 @@ document.addEventListener('DOMContentLoaded', () => {
         trials = [];
         targetPresentedAt = 0;
         lastResponseAt = 0;
+        adaptiveState = null;
+        blockSummaries = [];
+        loadHistory = [];
+        omittedTargets = new Set();
+        completedTargets = new Set();
+        targetConditions = new Map();
+        cellByNumber = new Map();
+        textByNumber = new Map();
+        cellMetadata = new Map();
+        textGroupSelection = null;
+        noiseGroupSelection = null;
+        interferenceGroupSelection = null;
+        layoutBounds = { width: 0, height: 0 };
+        activeTargetCondition = null;
         startBtn.disabled = false;
         startBtn.textContent = "开始测试";
         totalNumbersInput.disabled = false;
+        setLoadInputsDisabled(false);
+        updateTrainingHud();
     }
 
     function updateTimer() {
@@ -125,6 +174,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (width <= 0 || height <= 0) {
             throw new Error(`Game area dimensions are invalid: ${width}x${height}`);
         }
+        layoutBounds = { width, height };
 
         // Force set SVG dimensions
         svg.attr("width", width)
@@ -288,8 +338,19 @@ document.addEventListener('DOMContentLoaded', () => {
         const numbers = d3.shuffle(d3.range(1, totalNumbers + 1));
         
         // Render
+        cellByNumber.clear();
+        textByNumber.clear();
+        cellMetadata.clear();
+
         const cellGroup = svg.append("g").attr("class", "cells");
+        noiseGroupSelection = svg.append("g")
+            .attr("class", "visual-noise")
+            .attr("pointer-events", "none");
         const textGroup = svg.append("g").attr("class", "texts");
+        textGroupSelection = textGroup;
+        interferenceGroupSelection = svg.append("g")
+            .attr("class", "interference")
+            .attr("pointer-events", "none");
 
         polygons.forEach((poly, i) => {
             const num = (i < totalNumbers) ? numbers[i] : null; 
@@ -299,9 +360,10 @@ document.addEventListener('DOMContentLoaded', () => {
             const centroid = d3.polygonCentroid(poly);
 
             // Render Path
-            cellGroup.append("path")
+            const pathElement = cellGroup.append("path")
                 .attr("d", "M" + poly.join("L") + "Z")
                 .attr("class", "cell-region")
+                .attr("data-number", num)
                 .attr("fill", "#f9f9f9")
                 .attr("stroke", "#333")
                 .attr("stroke-width", 1)
@@ -370,6 +432,15 @@ document.addEventListener('DOMContentLoaded', () => {
                     .attr("fill", "black") // Explicitly set initial color to black
                     .attr("pointer-events", "none")
                     .node();
+
+                cellByNumber.set(num, pathElement);
+                textByNumber.set(num, d3.select(textElement));
+                cellMetadata.set(num, {
+                    polygon: poly,
+                    center: [cx, cy],
+                    fontSize,
+                    rotation
+                });
             }
         });
     }
@@ -744,6 +815,527 @@ document.addEventListener('DOMContentLoaded', () => {
         return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
     }
 
+    function normalizeRangeValue(value, min, max) {
+        const numeric = Number(value);
+        if (!Number.isFinite(numeric)) return min;
+        return Math.max(min, Math.min(max, Math.round(numeric)));
+    }
+
+    function setLoadInputsDisabled(disabled) {
+        [distractorStrengthInput, visualNoiseInput, targetSimilarityInput].forEach(input => {
+            if (input) input.disabled = disabled;
+        });
+    }
+
+    function clamp(value, min, max) {
+        return Math.max(min, Math.min(max, value));
+    }
+
+    function roundTo(value, digits = 2) {
+        if (!Number.isFinite(value)) return 0;
+        const factor = 10 ** digits;
+        return Math.round(value * factor) / factor;
+    }
+
+    function readLoadRatio(input, fallback) {
+        if (!input) return fallback;
+        return normalizeRangeValue(input.value, 0, 100) / 100;
+    }
+
+    function estimateLoadLevel({ distractorStrength, visualNoise, targetDistractorSimilarity }) {
+        const densityPressure = totalNumbers / 100;
+        return clamp(
+            Math.round(1 + densityPressure * 2 + distractorStrength * 2 + visualNoise * 1.5 + targetDistractorSimilarity * 1.5),
+            1,
+            8
+        );
+    }
+
+    function computeInitialDeadlineMs({ distractorStrength, visualNoise, targetDistractorSimilarity }) {
+        const densityCost = Math.sqrt(totalNumbers) * 350;
+        const loadCost = ((distractorStrength + visualNoise + targetDistractorSimilarity) / 3) * 1800;
+        return clamp(Math.round(3300 + densityCost + loadCost), MIN_DEADLINE_MS, MAX_DEADLINE_MS);
+    }
+
+    function getStimulusDensity() {
+        const area = layoutBounds.width * layoutBounds.height;
+        return {
+            totalTargets: totalNumbers,
+            targetsPer100kPx: area > 0 ? roundTo(totalNumbers / (area / 100000), 2) : null
+        };
+    }
+
+    function compactLoadState(state) {
+        if (!state) return null;
+        const { lastChange, ...rest } = state;
+        return { ...rest };
+    }
+
+    function snapshotAdaptiveState() {
+        if (!adaptiveState) return null;
+        const lastChange = adaptiveState.lastChange ? {
+            direction: adaptiveState.lastChange.direction,
+            reason: adaptiveState.lastChange.reason,
+            sourceBlockIndex: adaptiveState.lastChange.sourceBlockIndex ?? null,
+            before: compactLoadState(adaptiveState.lastChange.before),
+            after: compactLoadState(adaptiveState.lastChange.after)
+        } : null;
+        return {
+            blockIndex: adaptiveState.blockIndex,
+            blockSize: adaptiveState.blockSize,
+            level: adaptiveState.level,
+            targetDensity: adaptiveState.targetDensity,
+            distractorStrength: roundTo(adaptiveState.distractorStrength, 3),
+            visualNoise: roundTo(adaptiveState.visualNoise, 3),
+            targetDistractorSimilarity: roundTo(adaptiveState.targetDistractorSimilarity, 3),
+            responseDeadlineMs: adaptiveState.responseDeadlineMs,
+            recommendedNextTotalNumbers: adaptiveState.recommendedNextTotalNumbers,
+            nextRecommendation: adaptiveState.nextRecommendation,
+            lastChange
+        };
+    }
+
+    function initializeTrainingState() {
+        const distractorStrength = readLoadRatio(distractorStrengthInput, 0.45);
+        const visualNoise = readLoadRatio(visualNoiseInput, 0.3);
+        const targetDistractorSimilarity = readLoadRatio(targetSimilarityInput, 0.45);
+        const initialLoad = {
+            distractorStrength,
+            visualNoise,
+            targetDistractorSimilarity
+        };
+
+        adaptiveState = {
+            blockIndex: 0,
+            blockSize: Math.max(1, Math.min(BLOCK_SIZE, totalNumbers)),
+            level: estimateLoadLevel(initialLoad),
+            targetDensity: { totalTargets: totalNumbers, targetsPer100kPx: null },
+            distractorStrength,
+            visualNoise,
+            targetDistractorSimilarity,
+            responseDeadlineMs: computeInitialDeadlineMs(initialLoad),
+            recommendedNextTotalNumbers: totalNumbers,
+            nextRecommendation: 'collect-baseline',
+            lastChange: {
+                direction: 'initial',
+                reason: 'initial-controls',
+                before: null,
+                after: null
+            }
+        };
+
+        blockSummaries = [];
+        loadHistory = [{
+            ...snapshotAdaptiveState(),
+            sourceBlockIndex: null,
+            direction: 'initial',
+            reason: 'initial-controls'
+        }];
+        updateTrainingHud();
+    }
+
+    function updateTrainingHud() {
+        if (focusBlockDisplay) {
+            focusBlockDisplay.textContent = String((adaptiveState?.blockIndex || 0) + 1);
+        }
+        if (focusLoadDisplay) {
+            focusLoadDisplay.textContent = `L${adaptiveState?.level || 1}`;
+        }
+    }
+
+    function clearTargetDeadline() {
+        if (targetDeadlineTimer) {
+            clearTimeout(targetDeadlineTimer);
+            targetDeadlineTimer = null;
+        }
+    }
+
+    function scheduleTargetDeadline(targetNumber, startedAt) {
+        clearTargetDeadline();
+        if (!adaptiveState) return;
+        const deadlineMs = adaptiveState.responseDeadlineMs;
+        targetDeadlineTimer = setTimeout(() => {
+            if (!isPlaying || Number(currentTarget) !== Number(targetNumber) || omittedTargets.has(targetNumber)) {
+                return;
+            }
+            const missedAt = Date.now();
+            omittedTargets.add(targetNumber);
+            recordTrial({
+                targetNumber,
+                responseNumber: null,
+                correct: false,
+                respondedAt: missedAt,
+                errorType: 'omission',
+                eventType: 'deadline',
+                updateLastResponse: false,
+                forcedRtMs: null,
+                targetElapsedOverrideMs: Math.max(0, Math.round(missedAt - startedAt))
+            });
+        }, deadlineMs);
+    }
+
+    function beginTargetTrial(targetNumber, startedAt) {
+        targetPresentedAt = startedAt;
+        activeTargetCondition = buildTargetCondition(targetNumber);
+        targetConditions.set(targetNumber, activeTargetCondition);
+        applyTargetInterference(activeTargetCondition);
+        scheduleTargetDeadline(targetNumber, startedAt);
+        updateTrainingHud();
+    }
+
+    function getSimilarityScore(targetNumber, candidateNumber) {
+        const targetText = String(targetNumber);
+        const candidateText = String(candidateNumber);
+        const sharedDigits = [...new Set(targetText)].filter(digit => candidateText.includes(digit)).length;
+        const sameDecade = Math.floor(targetNumber / 10) === Math.floor(candidateNumber / 10) ? 1 : 0;
+        const sameOnes = targetNumber % 10 === candidateNumber % 10 ? 1 : 0;
+        const nearValue = Math.max(0, 1 - Math.min(Math.abs(targetNumber - candidateNumber), 20) / 20);
+        return sharedDigits * 2 + sameDecade * 1.5 + sameOnes * 1.2 + nearValue + Math.random() * 0.25;
+    }
+
+    function getSimilarDistractors(targetNumber, desiredCount) {
+        let candidates = Array.from(cellMetadata.keys())
+            .filter(num => num !== targetNumber && !completedTargets.has(num));
+        if (candidates.length < desiredCount) {
+            candidates = Array.from(cellMetadata.keys()).filter(num => num !== targetNumber);
+        }
+
+        return candidates
+            .map(num => ({ number: num, score: getSimilarityScore(targetNumber, num) }))
+            .sort((a, b) => b.score - a.score)
+            .slice(0, desiredCount)
+            .map(item => item.number);
+    }
+
+    function makeDecoyLabel(targetNumber, distractorNumber) {
+        const lookAlikes = {
+            '0': ['8', '6'],
+            '1': ['7', '4'],
+            '2': ['3', '7'],
+            '3': ['8', '5'],
+            '4': ['1', '7'],
+            '5': ['6', '8'],
+            '6': ['8', '5'],
+            '7': ['1', '4'],
+            '8': ['3', '6'],
+            '9': ['8', '6']
+        };
+        const source = String(Math.random() < 0.55 ? targetNumber : distractorNumber);
+        const chars = source.split('');
+        const index = Math.floor(Math.random() * chars.length);
+        const options = lookAlikes[chars[index]] || [chars[index]];
+        chars[index] = options[Math.floor(Math.random() * options.length)];
+        return chars.join('');
+    }
+
+    function buildTargetCondition(targetNumber) {
+        const state = adaptiveState || {
+            blockIndex: 0,
+            distractorStrength: 0,
+            visualNoise: 0,
+            targetDistractorSimilarity: 0,
+            responseDeadlineMs: MAX_DEADLINE_MS
+        };
+        const rareInterference = Math.random() < clamp(0.08 + state.distractorStrength * 0.22 + state.targetDistractorSimilarity * 0.12, 0.08, 0.42);
+        const noiseActive = Math.random() < clamp(0.12 + state.visualNoise * 0.68, 0.12, 0.85);
+        const desiredDistractors = clamp(
+            Math.round(2 + state.distractorStrength * 7 + state.targetDistractorSimilarity * 7 + (rareInterference ? 4 : 0)),
+            1,
+            Math.max(1, totalNumbers - 1)
+        );
+        const distractorNumbers = getSimilarDistractors(targetNumber, desiredDistractors);
+        const conditionType = rareInterference && noiseActive
+            ? 'combined-interference'
+            : rareInterference
+                ? 'similar-distractor'
+                : noiseActive
+                    ? 'visual-noise'
+                    : 'baseline';
+
+        return {
+            conditionId: `focus-b${state.blockIndex}-t${targetNumber}`,
+            conditionType,
+            targetNumber,
+            blockIndex: state.blockIndex,
+            isRareInterference: rareInterference,
+            targetDensity: getStimulusDensity(),
+            distractorStrength: roundTo(state.distractorStrength, 3),
+            visualNoise: roundTo(state.visualNoise, 3),
+            targetDistractorSimilarity: roundTo(state.targetDistractorSimilarity, 3),
+            responseDeadlineMs: state.responseDeadlineMs,
+            similarDistractorCount: distractorNumbers.length,
+            distractorNumbers,
+            decoyGlyphs: distractorNumbers.map(num => ({
+                nearNumber: num,
+                label: makeDecoyLabel(targetNumber, num)
+            }))
+        };
+    }
+
+    function resetInterferenceStyles() {
+        if (interferenceGroupSelection) interferenceGroupSelection.selectAll("*").remove();
+
+        cellByNumber.forEach((pathSelection, number) => {
+            if (pathSelection.classed("found") || pathSelection.classed("latest-found")) return;
+            pathSelection
+                .attr("fill", "#f9f9f9")
+                .attr("stroke", "#333")
+                .attr("stroke-width", 1);
+        });
+
+        textByNumber.forEach((textSelection, number) => {
+            if (textSelection.classed("found") || textSelection.classed("latest-found")) return;
+            if (!isAdvancedMode && completedTargets.has(number)) return;
+            const metadata = cellMetadata.get(number);
+            textSelection
+                .attr("fill", "black")
+                .attr("font-weight", null)
+                .attr("opacity", 1);
+            if (metadata) {
+                textSelection.attr("font-size", metadata.fontSize);
+            }
+        });
+    }
+
+    function renderVisualNoise(condition) {
+        if (!noiseGroupSelection) return;
+        noiseGroupSelection.selectAll("*").remove();
+        const width = layoutBounds.width;
+        const height = layoutBounds.height;
+        const intensity = clamp(condition.visualNoise + condition.distractorStrength * 0.25, 0, 1);
+        const noiseCount = Math.round(intensity * 70 + (condition.isRareInterference ? 14 : 0));
+
+        for (let i = 0; i < noiseCount; i++) {
+            if (Math.random() < 0.55) {
+                const x1 = Math.random() * width;
+                const y1 = Math.random() * height;
+                const angle = Math.random() * Math.PI * 2;
+                const length = 8 + Math.random() * 26;
+                noiseGroupSelection.append("line")
+                    .attr("x1", x1)
+                    .attr("y1", y1)
+                    .attr("x2", x1 + Math.cos(angle) * length)
+                    .attr("y2", y1 + Math.sin(angle) * length)
+                    .attr("stroke", condition.isRareInterference ? "#8a6f4d" : "#777")
+                    .attr("stroke-width", 0.6 + intensity * 0.9)
+                    .attr("opacity", 0.06 + intensity * 0.13);
+            } else {
+                noiseGroupSelection.append("circle")
+                    .attr("cx", Math.random() * width)
+                    .attr("cy", Math.random() * height)
+                    .attr("r", 1 + Math.random() * (1 + intensity * 3))
+                    .attr("fill", "#555")
+                    .attr("opacity", 0.05 + intensity * 0.12);
+            }
+        }
+    }
+
+    function renderDecoyGlyphs(condition) {
+        if (!interferenceGroupSelection) return;
+        const opacity = condition.isRareInterference ? 0.56 : 0.36;
+        const maxGlyphs = clamp(Math.round(3 + condition.distractorStrength * 9), 1, condition.decoyGlyphs.length);
+        condition.decoyGlyphs.slice(0, maxGlyphs).forEach((glyph, index) => {
+            const metadata = cellMetadata.get(glyph.nearNumber);
+            if (!metadata) return;
+            const angle = (index / Math.max(1, maxGlyphs)) * Math.PI * 2 + Math.random() * 0.7;
+            const radius = 10 + Math.random() * 16;
+            const x = metadata.center[0] + Math.cos(angle) * radius;
+            const y = metadata.center[1] + Math.sin(angle) * radius;
+            interferenceGroupSelection.append("text")
+                .attr("x", x)
+                .attr("y", y)
+                .attr("text-anchor", "middle")
+                .attr("dominant-baseline", "central")
+                .attr("font-size", Math.max(10, metadata.fontSize * 0.58))
+                .attr("font-weight", condition.isRareInterference ? 700 : 600)
+                .attr("fill", condition.isRareInterference ? "#9a3f2e" : "#666")
+                .attr("opacity", opacity)
+                .attr("transform", `rotate(${(Math.random() - 0.5) * 42}, ${x}, ${y})`)
+                .text(glyph.label);
+        });
+    }
+
+    function applyTargetInterference(condition) {
+        resetInterferenceStyles();
+        renderVisualNoise(condition);
+
+        const strokeColor = condition.isRareInterference ? "#9a3f2e" : "#6f6f6f";
+        const textColor = condition.isRareInterference ? "#9a3f2e" : "#565656";
+        condition.distractorNumbers.forEach(number => {
+            if (completedTargets.has(number)) return;
+            const textSelection = textByNumber.get(number);
+            const pathSelection = cellByNumber.get(number);
+            const metadata = cellMetadata.get(number);
+            if (pathSelection && !pathSelection.classed("found") && !pathSelection.classed("latest-found")) {
+                pathSelection
+                    .attr("stroke", strokeColor)
+                    .attr("stroke-width", 1 + condition.distractorStrength * 1.6);
+            }
+            if (textSelection && !textSelection.classed("found") && !textSelection.classed("latest-found")) {
+                textSelection
+                    .attr("fill", textColor)
+                    .attr("font-weight", condition.isRareInterference ? 700 : 600)
+                    .attr("opacity", 0.82 + condition.distractorStrength * 0.18);
+                if (metadata) {
+                    textSelection.attr("font-size", metadata.fontSize * (1 + condition.targetDistractorSimilarity * 0.08));
+                }
+            }
+        });
+
+        renderDecoyGlyphs(condition);
+    }
+
+    function standardDeviation(values) {
+        if (values.length < 2) return 0;
+        const avg = values.reduce((sum, value) => sum + value, 0) / values.length;
+        const variance = values.reduce((sum, value) => sum + (value - avg) ** 2, 0) / values.length;
+        return Math.round(Math.sqrt(variance));
+    }
+
+    function summarizeBlock(blockIndex) {
+        const blockSize = adaptiveState?.blockSize || BLOCK_SIZE;
+        const targetRangeStart = blockIndex * blockSize + 1;
+        const targetRangeEnd = Math.min(totalNumbers, (blockIndex + 1) * blockSize);
+        const scheduledTargets = Math.max(0, targetRangeEnd - targetRangeStart + 1);
+        const blockTrials = trials.filter(trial => trial.blockIndex === blockIndex);
+        const correctClicks = blockTrials.filter(trial => trial.correct && trial.eventType === 'click');
+        const falseAlarms = blockTrials.filter(trial => trial.errorType === 'falseAlarm');
+        const omissions = blockTrials.filter(trial => trial.errorType === 'omission');
+        const denominator = correctClicks.length + falseAlarms.length + omissions.length;
+        const rtValues = correctClicks.map(trial => trial.targetElapsedMs).filter(Number.isFinite);
+        const firstHalf = rtValues.slice(0, Math.ceil(rtValues.length / 2));
+        const secondHalf = rtValues.slice(Math.ceil(rtValues.length / 2));
+        const firstHalfMeanRtMs = mean(firstHalf);
+        const secondHalfMeanRtMs = mean(secondHalf);
+        const vigilanceDeclineMs = secondHalf.length && firstHalf.length ? secondHalfMeanRtMs - firstHalfMeanRtMs : 0;
+
+        return {
+            blockIndex,
+            targetRangeStart,
+            targetRangeEnd,
+            scheduledTargets,
+            totalEvents: blockTrials.length,
+            completedTargets: correctClicks.length,
+            falseAlarms: falseAlarms.length,
+            omissions: omissions.length,
+            accuracy: denominator > 0 ? roundTo(correctClicks.length / denominator, 3) : 0,
+            falseAlarmRate: denominator > 0 ? roundTo(falseAlarms.length / denominator, 3) : 0,
+            omissionRate: scheduledTargets > 0 ? roundTo(omissions.length / scheduledTargets, 3) : 0,
+            meanRtMs: mean(rtValues),
+            rtStdDevMs: standardDeviation(rtValues),
+            rtCoefficientOfVariation: mean(rtValues) > 0 ? roundTo(standardDeviation(rtValues) / mean(rtValues), 3) : 0,
+            firstHalfMeanRtMs,
+            secondHalfMeanRtMs,
+            vigilanceDeclineMs,
+            vigilanceDeclineRatio: firstHalfMeanRtMs > 0 ? roundTo(vigilanceDeclineMs / firstHalfMeanRtMs, 3) : 0
+        };
+    }
+
+    function chooseLoadAdjustment(summary) {
+        const reasons = [];
+        if (summary.omissionRate > 0.12) reasons.push('omissions');
+        if (summary.falseAlarmRate > 0.18) reasons.push('false-alarms');
+        if (summary.rtCoefficientOfVariation > 0.55) reasons.push('rt-variability');
+        if (summary.vigilanceDeclineRatio > 0.3) reasons.push('vigilance-decline');
+
+        if (reasons.length) {
+            return {
+                direction: 'decrease',
+                reason: reasons.join('+'),
+                nextRecommendation: 'reduce-load-and-stabilize-target-maintenance'
+            };
+        }
+
+        if (
+            summary.accuracy >= 0.92 &&
+            summary.omissionRate <= 0.05 &&
+            summary.falseAlarmRate <= 0.08 &&
+            summary.rtCoefficientOfVariation <= 0.38 &&
+            summary.vigilanceDeclineRatio <= 0.15
+        ) {
+            return {
+                direction: 'increase',
+                reason: 'stable-high-accuracy-low-variability',
+                nextRecommendation: 'increase-similarity-noise-or-target-density'
+            };
+        }
+
+        return {
+            direction: 'maintain',
+            reason: 'mixed-performance',
+            nextRecommendation: 'maintain-load-until-rt-and-errors-stabilize'
+        };
+    }
+
+    function applyLoadAdjustment(adjustment, blockIndex, isFinal) {
+        const before = snapshotAdaptiveState();
+        if (!adaptiveState) return { before: null, after: null };
+
+        if (adjustment.direction === 'increase') {
+            adaptiveState.distractorStrength = clamp(adaptiveState.distractorStrength + 0.08, 0, 1);
+            adaptiveState.visualNoise = clamp(adaptiveState.visualNoise + 0.06, 0, 1);
+            adaptiveState.targetDistractorSimilarity = clamp(adaptiveState.targetDistractorSimilarity + 0.07, 0, 1);
+            adaptiveState.responseDeadlineMs = clamp(Math.round(adaptiveState.responseDeadlineMs * 0.92), MIN_DEADLINE_MS, MAX_DEADLINE_MS);
+            adaptiveState.recommendedNextTotalNumbers = clamp(totalNumbers + 8, 1, 100);
+        } else if (adjustment.direction === 'decrease') {
+            adaptiveState.distractorStrength = clamp(adaptiveState.distractorStrength - 0.1, 0, 1);
+            adaptiveState.visualNoise = clamp(adaptiveState.visualNoise - 0.08, 0, 1);
+            adaptiveState.targetDistractorSimilarity = clamp(adaptiveState.targetDistractorSimilarity - 0.08, 0, 1);
+            adaptiveState.responseDeadlineMs = clamp(Math.round(adaptiveState.responseDeadlineMs * 1.14), MIN_DEADLINE_MS, MAX_DEADLINE_MS);
+            adaptiveState.recommendedNextTotalNumbers = clamp(totalNumbers - 8, 1, 100);
+        } else {
+            adaptiveState.recommendedNextTotalNumbers = totalNumbers;
+        }
+
+        adaptiveState.blockIndex = isFinal ? adaptiveState.blockIndex : adaptiveState.blockIndex + 1;
+        adaptiveState.targetDensity = getStimulusDensity();
+        adaptiveState.level = estimateLoadLevel(adaptiveState);
+        adaptiveState.nextRecommendation = adjustment.nextRecommendation;
+        adaptiveState.lastChange = {
+            direction: adjustment.direction,
+            reason: adjustment.reason,
+            sourceBlockIndex: blockIndex,
+            before,
+            after: null
+        };
+        const after = snapshotAdaptiveState();
+        adaptiveState.lastChange.after = compactLoadState(after);
+        const finalAfter = snapshotAdaptiveState();
+        loadHistory.push({
+            ...finalAfter,
+            sourceBlockIndex: blockIndex,
+            direction: adjustment.direction,
+            reason: adjustment.reason
+        });
+        updateTrainingHud();
+        return { before, after: finalAfter };
+    }
+
+    function finalizeCurrentBlock(isFinal = false) {
+        if (!adaptiveState) return;
+        const blockIndex = adaptiveState.blockIndex;
+        if (blockSummaries.some(summary => summary.blockIndex === blockIndex && summary.closed)) return;
+
+        const summary = summarizeBlock(blockIndex);
+        const adjustment = chooseLoadAdjustment(summary);
+        const loadChange = applyLoadAdjustment(adjustment, blockIndex, isFinal);
+        blockSummaries.push({
+            ...summary,
+            closed: true,
+            isFinal,
+            adjustment,
+            loadBefore: loadChange.before,
+            loadAfter: loadChange.after
+        });
+    }
+
+    function maybeFinalizeBlock(completedTargetNumber) {
+        const blockSize = adaptiveState?.blockSize || BLOCK_SIZE;
+        if (completedTargetNumber > 0 && completedTargetNumber % blockSize === 0) {
+            finalizeCurrentBlock(false);
+        }
+    }
+
     function getModeId() {
         return isAdvancedMode ? 'advanced' : 'simple';
     }
@@ -753,27 +1345,66 @@ document.addEventListener('DOMContentLoaded', () => {
         return Math.round(values.reduce((sum, value) => sum + value, 0) / values.length);
     }
 
-    function recordTrial(targetNumber, responseNumber, correct, respondedAt) {
+    function recordTrial({
+        targetNumber,
+        responseNumber,
+        correct,
+        respondedAt,
+        errorType = 'none',
+        eventType = 'click',
+        updateLastResponse = true,
+        forcedRtMs,
+        targetElapsedOverrideMs
+    }) {
         const responseBaseline = lastResponseAt || targetPresentedAt || startTime || respondedAt;
         const targetBaseline = targetPresentedAt || startTime || respondedAt;
+        const condition = targetConditions.get(targetNumber) || activeTargetCondition || buildTargetCondition(targetNumber);
+        const targetElapsedMs = Number.isFinite(targetElapsedOverrideMs)
+            ? targetElapsedOverrideMs
+            : Math.max(0, Math.round(respondedAt - targetBaseline));
+        const rtMs = forcedRtMs !== undefined
+            ? forcedRtMs
+            : Math.max(0, Math.round(respondedAt - responseBaseline));
+        const adaptiveSnapshot = snapshotAdaptiveState();
 
         trials.push({
             index: trials.length,
+            trialId: `focus-${trials.length + 1}`,
+            eventType,
             stimulus: {
-                type: 'number-cell',
+                type: 'number-cell-search',
                 targetNumber,
                 totalNumbers,
-                mode: getModeId()
+                mode: getModeId(),
+                conditionType: condition.conditionType,
+                isRareInterference: condition.isRareInterference,
+                targetDensity: condition.targetDensity,
+                responseDeadlineMs: condition.responseDeadlineMs,
+                distractorCondition: {
+                    strength: condition.distractorStrength,
+                    visualNoise: condition.visualNoise,
+                    targetDistractorSimilarity: condition.targetDistractorSimilarity,
+                    similarDistractorCount: condition.similarDistractorCount,
+                    distractorNumbers: [...condition.distractorNumbers],
+                    decoyGlyphCount: condition.decoyGlyphs.length
+                }
             },
             target: targetNumber,
             response: responseNumber,
             correct,
-            rtMs: Math.max(0, Math.round(respondedAt - responseBaseline)),
-            targetElapsedMs: Math.max(0, Math.round(respondedAt - targetBaseline)),
-            elapsedMs: Math.max(0, Math.round(respondedAt - (startTime || respondedAt)))
+            errorType,
+            rtMs,
+            targetElapsedMs,
+            elapsedMs: Math.max(0, Math.round(respondedAt - (startTime || respondedAt))),
+            blockIndex: adaptiveSnapshot?.blockIndex || 0,
+            adaptiveState: adaptiveSnapshot,
+            loadChange: adaptiveSnapshot?.lastChange || null,
+            nextRecommendation: adaptiveSnapshot?.nextRecommendation || null
         });
 
-        lastResponseAt = respondedAt;
+        if (updateLastResponse) {
+            lastResponseAt = respondedAt;
+        }
     }
 
     function handleCellClick(num, pathSelection, textSelection) {
@@ -786,9 +1417,20 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const respondedAt = Date.now();
         const isCorrect = clickNum === currentTgt;
-        recordTrial(currentTgt, clickNum, isCorrect, respondedAt);
+        recordTrial({
+            targetNumber: currentTgt,
+            responseNumber: clickNum,
+            correct: isCorrect,
+            respondedAt,
+            errorType: isCorrect
+                ? (omittedTargets.has(currentTgt) ? 'omissionRecovery' : 'none')
+                : 'falseAlarm',
+            eventType: 'click'
+        });
 
         if (isCorrect) {
+            clearTargetDeadline();
+            completedTargets.add(clickNum);
             // Correct
             if (!isAdvancedMode) {
                 // Simple Mode: Gray out background and text
@@ -798,6 +1440,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     .attr("class", "cell-region found");
                 
                 textSelection
+                    .classed("found", true)
                     .transition().duration(200)
                     .attr("fill", "#aaa");
             } else {
@@ -836,9 +1479,10 @@ document.addEventListener('DOMContentLoaded', () => {
             if (clickNum === total) {
                 endGame();
             } else {
+                maybeFinalizeBlock(clickNum);
                 currentTarget++;
-                targetPresentedAt = respondedAt;
                 targetDisplay.textContent = currentTarget;
+                beginTargetTrial(currentTarget, respondedAt);
             }
         } else {
             // Wrong
@@ -860,13 +1504,37 @@ document.addEventListener('DOMContentLoaded', () => {
         sessionSaved = true;
 
         const totalTrials = trials.length;
-        const correctTrials = trials.filter(trial => trial.correct);
+        const responseTrials = trials.filter(trial => trial.eventType === 'click');
+        const correctTrials = responseTrials.filter(trial => trial.correct);
         const correctCount = correctTrials.length;
-        const errorCount = totalTrials - correctCount;
-        const accuracy = totalTrials > 0 ? correctCount / totalTrials : 0;
-        const meanRtMs = mean(trials.map(trial => trial.rtMs).filter(Number.isFinite));
-        const meanCorrectTargetMs = mean(correctTrials.map(trial => trial.targetElapsedMs).filter(Number.isFinite));
+        const falseAlarmCount = trials.filter(trial => trial.errorType === 'falseAlarm').length;
+        const omissionCount = trials.filter(trial => trial.errorType === 'omission').length;
+        const omissionRecoveryCount = trials.filter(trial => trial.errorType === 'omissionRecovery').length;
+        const errorCount = falseAlarmCount + omissionCount;
+        const scoredEvents = correctCount + errorCount;
+        const accuracy = scoredEvents > 0 ? correctCount / scoredEvents : 0;
+        const correctTargetElapsed = correctTrials.map(trial => trial.targetElapsedMs).filter(Number.isFinite);
+        const meanRtMs = mean(correctTargetElapsed);
+        const rtStdDevMs = standardDeviation(correctTargetElapsed);
+        const rtCoefficientOfVariation = meanRtMs > 0 ? roundTo(rtStdDevMs / meanRtMs, 3) : 0;
+        const meanCorrectTargetMs = mean(correctTargetElapsed);
         const numbersPerMinute = durationMs > 0 ? Number((correctCount / (durationMs / 60000)).toFixed(2)) : 0;
+        const firstHalfRt = correctTargetElapsed.slice(0, Math.ceil(correctTargetElapsed.length / 2));
+        const secondHalfRt = correctTargetElapsed.slice(Math.ceil(correctTargetElapsed.length / 2));
+        const firstHalfMeanRtMs = mean(firstHalfRt);
+        const secondHalfMeanRtMs = mean(secondHalfRt);
+        const vigilanceDeclineMs = firstHalfMeanRtMs > 0 && secondHalfMeanRtMs > 0
+            ? secondHalfMeanRtMs - firstHalfMeanRtMs
+            : 0;
+        const vigilanceDeclineRatio = firstHalfMeanRtMs > 0 ? roundTo(vigilanceDeclineMs / firstHalfMeanRtMs, 3) : 0;
+        const finalAdaptiveState = snapshotAdaptiveState();
+        const nextRoundSuggestion = {
+            recommendation: finalAdaptiveState?.nextRecommendation || 'maintain-load',
+            totalNumbers: finalAdaptiveState?.recommendedNextTotalNumbers || totalNumbers,
+            distractorStrength: finalAdaptiveState?.distractorStrength ?? readLoadRatio(distractorStrengthInput, 0.45),
+            visualNoise: finalAdaptiveState?.visualNoise ?? readLoadRatio(visualNoiseInput, 0.3),
+            targetDistractorSimilarity: finalAdaptiveState?.targetDistractorSimilarity ?? readLoadRatio(targetSimilarityInput, 0.45)
+        };
 
         window.TrainingResults.saveSession({
             moduleId: 'focus',
@@ -881,7 +1549,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 correctCount,
                 accuracy,
                 meanRtMs,
+                rtStdDevMs,
+                rtCoefficientOfVariation,
                 errorCount,
+                falseAlarmCount,
+                omissionCount,
+                omissionRecoveryCount,
                 totalNumbers,
                 mode: getModeId(),
                 durationMs,
@@ -890,14 +1563,26 @@ document.addEventListener('DOMContentLoaded', () => {
                 equivalentMinutes: Number(equivalentMinutes.toFixed(2)),
                 scaleFactor: Number(scaleFactor.toFixed(4)),
                 meanCorrectTargetMs,
-                numbersPerMinute
+                numbersPerMinute,
+                firstHalfMeanRtMs,
+                secondHalfMeanRtMs,
+                vigilanceDeclineMs,
+                vigilanceDeclineRatio,
+                adaptiveState: finalAdaptiveState,
+                loadHistory: loadHistory.map(item => ({ ...item })),
+                blockSummaries: blockSummaries.map(summary => ({ ...summary })),
+                nextRoundSuggestion
             },
             trials: trials.map(trial => ({ ...trial })),
             metrics: {
                 accuracy: `${Math.round(accuracy * 100)}%`,
                 meanRT: `${meanRtMs}ms`,
+                rtVariability: `${rtStdDevMs}ms`,
+                omissions: String(omissionCount),
+                falseAlarms: String(falseAlarmCount),
                 duration: timeStr,
                 grade,
+                adaptiveLoad: `L${finalAdaptiveState?.level || 1}`,
                 mode: isAdvancedMode ? '高级版' : '简单版'
             },
             tags: ['attention', 'focus']
@@ -907,6 +1592,8 @@ document.addEventListener('DOMContentLoaded', () => {
     function endGame() {
         isPlaying = false;
         clearInterval(timerInterval);
+        clearTargetDeadline();
+        finalizeCurrentBlock(true);
         
         const finishedAt = new Date();
         const durationMs = Math.max(0, finishedAt.getTime() - startTime);
@@ -951,5 +1638,6 @@ document.addEventListener('DOMContentLoaded', () => {
         startBtn.disabled = false;
         startBtn.textContent = "开始测试";
         totalNumbersInput.disabled = false;
+        setLoadInputsDisabled(false);
     }
 });

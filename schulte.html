@@ -39,6 +39,31 @@
         .schulte-cell.wrong {
             background: #ffcccc;
         }
+        .schulte-cell.distractor {
+            color: #555;
+            background: #f4f4f4;
+        }
+        .schulte-cell.pace-late {
+            outline: 3px solid #f0ad4e;
+            outline-offset: -3px;
+        }
+        .training-setting-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 12px;
+            margin-top: 12px;
+            text-align: left;
+        }
+        .training-setting-grid label {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            font-size: 0.95rem;
+        }
+        .training-setting-grid select,
+        .training-setting-grid input {
+            min-height: 34px;
+        }
         .result-details {
             margin: 12px 0;
             text-align: left;
@@ -51,7 +76,7 @@
         <header class="with-back-link">
             <a href="index.html" class="back-btn page-header-back"><span aria-hidden="true">←</span><span>返回主页</span></a>
             <h1>舒尔特方格</h1>
-            <p>按顺序快速点击数字 1 - 25</p>
+            <p>按目标序列进行视觉搜索与稳定扫描</p>
         </header>
 
         <div class="controls">
@@ -68,6 +93,50 @@
                     <label for="grid-size">矩阵阶数 (N):</label>
                     <input type="number" id="grid-size" min="3" max="9" value="5">
                 </div>
+                <div class="training-setting-grid">
+                    <label for="symbol-set">
+                        目标集合
+                        <select id="symbol-set">
+                            <option value="numbers" selected>数字序列</option>
+                            <option value="letters">字母序列</option>
+                            <option value="symbols">符号序列</option>
+                            <option value="mixed">数字/字母混合</option>
+                        </select>
+                    </label>
+                    <label for="distractor-level">
+                        干扰项
+                        <select id="distractor-level">
+                            <option value="none" selected>无干扰</option>
+                            <option value="mild">轻度干扰</option>
+                            <option value="strong">强干扰</option>
+                        </select>
+                    </label>
+                    <label for="target-path">
+                        目标路径
+                        <select id="target-path">
+                            <option value="random" selected>随机搜索</option>
+                            <option value="row">行扫描</option>
+                            <option value="snake">蛇形扫描</option>
+                            <option value="spiral">螺旋扫描</option>
+                        </select>
+                    </label>
+                    <label for="pace-mode">
+                        节奏
+                        <select id="pace-mode">
+                            <option value="self" selected>自定节奏</option>
+                            <option value="paced">目标节奏</option>
+                            <option value="timed">限时回合</option>
+                        </select>
+                    </label>
+                    <label for="pace-ms">
+                        参考间隔(ms)
+                        <input type="number" id="pace-ms" min="300" max="5000" step="50" value="1100">
+                    </label>
+                    <label for="time-limit">
+                        限时(秒)
+                        <input type="number" id="time-limit" min="10" max="300" step="5" value="60">
+                    </label>
+                </div>
             </div>
             <div class="info-panel">
                 <div class="info-item">
@@ -77,6 +146,14 @@
                 <div class="info-item">
                     <span class="label">用时:</span>
                     <span id="timer" class="value">00:00</span>
+                </div>
+                <div class="info-item">
+                    <span class="label">进度:</span>
+                    <span id="progress" class="value">0/25</span>
+                </div>
+                <div class="info-item">
+                    <span class="label">节奏:</span>
+                    <span id="pace-status" class="value">自定</span>
                 </div>
             </div>
             <button id="start-btn" class="btn primary">开始测试</button>
