@@ -80,7 +80,34 @@ git ls-remote origin -h refs/heads/main
 
 因此本轮备用路径应优先考虑 GitHub API，而不是反复重试普通 `git push`。
 
-## 5. 备用路径原则
+## 5. 代理全局模式记录
+
+本轮用户补充：当时本机开启了代理全局模式。该因素应计入后续排查，但不能直接等同为已确认根因。
+
+需要记录它的原因：
+
+- 普通 HTTPS push 访问的是 `github.com:443`。
+- 本轮 `github.com:443` TCP 失败，但 `api.github.com:443` 可用。
+- 全局代理、代理规则、DNS 劫持或代理出口都可能造成“同属 GitHub 域名但不同主机连通性不同”的现象。
+- 后续再次遇到 `Failed to connect to github.com port 443` 时，应先记录当前代理模式，而不是只反复重试 Git。
+
+建议增加排查项：
+
+```powershell
+git config --show-origin --get-regexp "^(http|https)\..*proxy|^http\.proxy|^https\.proxy"
+Get-ChildItem Env:HTTP_PROXY,Env:HTTPS_PROXY,Env:ALL_PROXY,Env:NO_PROXY -ErrorAction SilentlyContinue
+netsh winhttp show proxy
+Test-NetConnection github.com -Port 443
+Test-NetConnection api.github.com -Port 443
+```
+
+处理原则：
+
+- 若全局代理开启且普通 push 失败，先尝试切换代理规则、关闭全局模式或改为直连后重试 `git push origin main`。
+- 若 `github.com:443` 不通但 `api.github.com:443` 可用，可以继续使用第 6 节的 GitHub API 备用路径。
+- 不在文档中记录代理账号、token、密钥或任何敏感凭据。
+
+## 6. 备用路径原则
 
 当普通 push 不通，但 `api.github.com` 可用时，可以使用 GitHub Git Database API 完成等效推送：
 
@@ -98,7 +125,7 @@ git ls-remote origin -h refs/heads/main
 - 如果远端 main 已前进，应先重新同步并处理冲突。
 - 若普通 `git fetch` 也因网络失败，可用 GitHub API 读取远端 ref 做最小确认。
 
-## 6. 本轮提交状态
+## 7. 本轮提交状态
 
 本轮本地提交已生成：
 

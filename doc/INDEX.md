@@ -73,7 +73,7 @@
 30. [30-training-body-strengthening-adaptive-batch-20260511.md](30-training-body-strengthening-adaptive-batch-20260511.md)
    训练本体再强化实施记录：Corsi、Digit Span、Task Switching、Go/No-Go、Mental Rotation、Raven 的自适应难度、参数化内容、诊断指标和流程门禁收口。
 31. [31-github-submit-runbook-20260512.md](31-github-submit-runbook-20260512.md)
-   GitHub 提交与推送经验记录：当前仓库口径、提交前门禁、网络失败判断顺序，以及普通 push 不通时的 GitHub API 备用路径。
+   GitHub 提交与推送经验记录：当前仓库口径、提交前门禁、网络失败判断顺序、代理全局模式排查项，以及普通 push 不通时的 GitHub API 备用路径。
 
 ## 源汇总镜像
 
