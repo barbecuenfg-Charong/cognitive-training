@@ -74,6 +74,10 @@
    训练本体再强化实施记录：Corsi、Digit Span、Task Switching、Go/No-Go、Mental Rotation、Raven 的自适应难度、参数化内容、诊断指标和流程门禁收口。
 31. [31-github-submit-runbook-20260512.md](31-github-submit-runbook-20260512.md)
    GitHub 提交与推送经验记录：当前仓库口径、提交前门禁、网络失败判断顺序、代理全局模式排查项，以及普通 push 不通时的 GitHub API 备用路径。
+32. [32-training-body-completeness-roadmap-20260512.md](32-training-body-completeness-roadmap-20260512.md)
+   训练项目本体完备性全面迭代计划：成熟度标准、剩余模块优先级、多 agent 闸门、分批执行路线和验收门禁。
+33. [33-work-log-20260512.md](33-work-log-20260512.md)
+   今日工作记录：训练本体强化提交、GitHub 推送经验、后续路线图和当前未提交文档状态。
 
 ## 源汇总镜像
 
@@ -95,6 +99,6 @@
 
 ## 文档版本
 
-- 版本：`v1.5`
-- 生成日期：`2026-05-11`
+- 版本：`v1.6`
+- 生成日期：`2026-05-12`
 - 适用范围：`glm5` 与 `gpt` 文档体系融合

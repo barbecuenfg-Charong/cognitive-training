@@ -20,7 +20,10 @@ const TEXT_EXT = new Set([
 const SENSITIVE_PATTERNS = [
     /C:\\Users\\Administrator/gi,
     /[A-Za-z]:\\Users\\/gi,
-    /\/Users\//gi
+    /\/Users\//gi,
+    /(^|[^A-Za-z0-9_])[A-Za-z]:\\[^`"'<>|]+/gi,
+    new RegExp("barbecue" + "nfg", "gi"),
+    new RegExp("barbecue" + "nfg-charong\\.github\\.io", "gi")
 ];
 
 function walk(dir, out = []) {
@@ -34,6 +37,7 @@ function walk(dir, out = []) {
         }
         const ext = path.extname(entry.name).toLowerCase();
         if (!TEXT_EXT.has(ext)) continue;
+        if (path.basename(fullPath) === "check-sensitive-paths.js") continue;
         out.push(fullPath);
     }
     return out;

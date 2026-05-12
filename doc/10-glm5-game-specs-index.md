@@ -8,7 +8,7 @@
 
 1. 本索引汇总了 GLM5 中“每个游戏说明”文档的仓库内镜像，便于在线查阅。
 2. 已按模块保持原目录结构，含各模块 `INDEX.md` 与具体游戏说明。
-3. 当前 GitHub 仓库为 `https://github.com/barbecuenfg-Charong/cognitive-training`，在线页面为 `https://barbecuenfg-charong.github.io/cognitive-training/`。
+3. 当前 GitHub 仓库和在线页面以本仓库实际远端与 Pages 设置为准；公开文档不记录具体账号 URL。
 4. `creative-writing`、`theory-of-mind`、`error-awareness`、`attention-test`、`cognitive-assessment` 当前仅作为规格/后续储备，不属于首页 33 个 active 训练页。
 
 ## 模块索引

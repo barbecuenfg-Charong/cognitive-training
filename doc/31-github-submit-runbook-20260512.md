@@ -6,7 +6,7 @@
 
 当前项目内已有线索：
 
-- `doc/10-glm5-game-specs-index.md` 记录当前仓库为 `https://github.com/barbecuenfg-Charong/cognitive-training`。
+- `doc/10-glm5-game-specs-index.md` 记录当前仓库以本地 `origin` 远端配置为准。
 - `doc/22-training-effect-alignment-and-module-optimization-20260511.md` 明确当前仓库、Pages 和文档入口，要求文档不要再指向旧 GitHub 空间。
 - `doc/28-practical-training-loop-and-planning-report-20260511.md` 记录“在稳定网络窗口统一提交并推送 GitHub”。
 
@@ -14,17 +14,17 @@
 
 相邻项目中可复用的经验：
 
-- `../20260306work001/scripts/create-github-repo.js` 使用 `git credential fill` 从 Git Credential Manager 获取本机已保存的 GitHub 凭据。
+- 相邻项目中曾使用 `git credential fill` 从 Git Credential Manager 获取本机认证通道；公开文档不得记录凭据内容、账号标识或命令输出中的敏感信息。
 - 同一脚本通过 `api.github.com` 调用 GitHub REST API，而不是只依赖 `git push` 传输层。
 
 这说明本机过去的有效思路是：优先走正常 Git；当 Git 传输层被网络阻断时，检查 Git Credential Manager 和 GitHub API 是否仍可用。
 
 ## 2. 当前仓库口径
 
-- 本地路径：`D:\Docs\03AI\02TraeCN\20260304work001`
-- 远端：`https://github.com/barbecuenfg-Charong/cognitive-training.git`
+- 本地路径：`<repo-root>`
+- 远端：以本地 `origin` 配置为准，公开文档不记录具体账号 URL
 - 分支：`main`
-- Pages：`https://barbecuenfg-charong.github.io/cognitive-training/`
+- Pages：以仓库 Pages 设置为准，公开文档不记录具体账号域名
 
 提交前必须先确认当前仓库不是相邻的 A 股 K 线项目。
 
@@ -75,8 +75,8 @@ git ls-remote origin -h refs/heads/main
 
 - `github.com:443` TCP 失败，导致普通 HTTPS `git push` 失败。
 - `api.github.com:443` 可用。
-- `ssh.github.com:443` 可用，但本机 SSH key 未被 GitHub 接受，`ssh -T` 返回 `Permission denied (publickey)`。
-- Git Credential Manager 能返回当前 GitHub 仓库访问凭据。
+- `ssh.github.com:443` 可用，但 SSH 认证未通过，`ssh -T` 返回 `Permission denied (publickey)`。
+- Git Credential Manager 可作为认证通道；不在文档中记录账号、token、凭据内容或命令输出。
 
 因此本轮备用路径应优先考虑 GitHub API，而不是反复重试普通 `git push`。
 
@@ -91,7 +91,7 @@ git ls-remote origin -h refs/heads/main
 - 全局代理、代理规则、DNS 劫持或代理出口都可能造成“同属 GitHub 域名但不同主机连通性不同”的现象。
 - 后续再次遇到 `Failed to connect to github.com port 443` 时，应先记录当前代理模式，而不是只反复重试 Git。
 
-建议增加排查项：
+建议增加排查项。注意：只记录是否可用，不把代理地址、账号、token 或凭据输出写入文档。
 
 ```powershell
 git config --show-origin --get-regexp "^(http|https)\..*proxy|^http\.proxy|^https\.proxy"

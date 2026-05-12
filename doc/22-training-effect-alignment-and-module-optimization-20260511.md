@@ -14,13 +14,13 @@
 
 当前仓库已经完成 33 个 active 训练任务的 `TrainingResults.saveSession` 接入。主要矛盾已经转为：数据和范式深度不足，无法充分支撑长期训练效果判断。
 
-## 2. 仓库链接口径
+## 2. 仓库链接与隐私口径
 
-- GitHub 仓库：<https://github.com/barbecuenfg-Charong/cognitive-training>
-- GitHub Pages：<https://barbecuenfg-charong.github.io/cognitive-training/>
-- 文档入口：<https://github.com/barbecuenfg-Charong/cognitive-training/blob/main/doc/INDEX.md>
+- GitHub 仓库：以本地 `origin` 远端配置为准，公开文档不记录具体账号 URL。
+- GitHub Pages：以仓库 Pages 设置为准，公开文档不记录具体账号域名。
+- 文档入口：`doc/INDEX.md`
 
-仓库内文档不得再指向旧的 GitHub 空间。外部引用要么使用上面的当前仓库地址，要么使用相对路径。
+仓库内文档不得再指向旧的 GitHub 空间，也不得写入个人账号、访问凭据、本机绝对路径或代理配置输出。内部文档链接优先使用相对路径。
 
 ## 3. 外部范式参考带来的约束
 

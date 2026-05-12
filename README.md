@@ -5,7 +5,7 @@
 ## 文档中心（在线查阅）
 
 - 综合文档入口（仓库渲染）：[doc/INDEX.md](doc/INDEX.md)
-- 页面入口（GitHub Pages）：<https://barbecuenfg-charong.github.io/cognitive-training/doc/index.html>
+- 页面入口（GitHub Pages）：发布后从 Pages 站点的 `doc/index.html` 访问。
 
 ## 当前基线（2026-05-10）
 
