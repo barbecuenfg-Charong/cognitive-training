@@ -1,6 +1,13 @@
 const TOTAL_ROUNDS = 20;
 const TOTAL_PIE = 10;
-const CONTENT_VERSION = "ultimatum-game-v2-seeded";
+const CONTENT_VERSION = "ultimatum-game-v3-strategy-depth";
+const DEFAULT_FAIRNESS_THRESHOLD = 4;
+const OFFER_BANDS = [
+    { id: "very-low", label: "1-2/10", min: 1, max: 2 },
+    { id: "low", label: "3/10", min: 3, max: 3 },
+    { id: "fair", label: "4-5/10", min: 4, max: 5 },
+    { id: "generous", label: "6-10/10", min: 6, max: 10 }
+];
 
 let offers = [];
 let round = 0;
@@ -45,22 +52,84 @@ function roundTo2(value) {
     return Number(value.toFixed(2));
 }
 
+function roundTo0OrNull(value) {
+    return value === null ? null : Math.round(value);
+}
+
 function percentage(count, total) {
     return total === 0 ? 0 : Math.round((count / total) * 100);
 }
 
+function average(values) {
+    const usable = values.filter((value) => Number.isFinite(value));
+    if (!usable.length) {
+        return null;
+    }
+    return usable.reduce((sum, value) => sum + value, 0) / usable.length;
+}
+
 function offerBand(offer) {
-    if (offer <= 3) {
-        return "low";
-    }
-    if (offer <= 5) {
-        return "even-to-fair";
-    }
-    return "generous";
+    const match = OFFER_BANDS.find((band) => offer >= band.min && offer <= band.max);
+    return match ? match.id : "out-of-range";
+}
+
+function offerBandLabel(offer) {
+    const match = OFFER_BANDS.find((band) => offer >= band.min && offer <= band.max);
+    return match ? match.label : "out-of-range";
 }
 
 function opponentStrategyForOffer(offer) {
     return `seeded-${offerBand(offer)}-offer`;
+}
+
+function clampOfferThreshold(value) {
+    return Math.min(TOTAL_PIE, Math.max(1, value));
+}
+
+function dynamicFairnessThresholdFor(history) {
+    const acceptedOffers = history.filter((trial) => trial.accept).map((trial) => trial.offer);
+    const rejectedOffers = history.filter((trial) => !trial.accept).map((trial) => trial.offer);
+    const minimumAccepted = acceptedOffers.length ? Math.min(...acceptedOffers) : null;
+    const maximumRejected = rejectedOffers.length ? Math.max(...rejectedOffers) : null;
+
+    if (minimumAccepted !== null && maximumRejected !== null) {
+        if (maximumRejected >= minimumAccepted) {
+            return clampOfferThreshold(Math.round((maximumRejected + minimumAccepted) / 2));
+        }
+        return minimumAccepted;
+    }
+    if (minimumAccepted !== null) {
+        return minimumAccepted;
+    }
+    if (maximumRejected !== null) {
+        return clampOfferThreshold(maximumRejected + 1);
+    }
+    return DEFAULT_FAIRNESS_THRESHOLD;
+}
+
+function choiceInconsistencyType(offer, accept, threshold) {
+    if (accept && offer < threshold) {
+        return "accepted-below-threshold";
+    }
+    if (!accept && offer >= threshold) {
+        return "rejected-at-or-above-threshold";
+    }
+    return "consistent-with-dynamic-threshold";
+}
+
+function fairnessProfileFor(list) {
+    const fairTrials = list.filter((trial) => trial.fair);
+    const unfairTrials = list.filter((trial) => !trial.fair);
+    const acceptanceRate = percentage(list.filter((trial) => trial.accept).length, list.length);
+    const fairAcceptanceRate = percentage(fairTrials.filter((trial) => trial.accept).length, fairTrials.length);
+    const unfairAcceptanceRate = percentage(unfairTrials.filter((trial) => trial.accept).length, unfairTrials.length);
+
+    return {
+        acceptanceRate,
+        fairAcceptanceRate,
+        unfairAcceptanceRate,
+        fairnessSensitivity: fairAcceptanceRate - unfairAcceptanceRate
+    };
 }
 
 function updateBoard() {
@@ -87,6 +156,8 @@ function decide(accept) {
     const roundNo = round + 1;
     const offer = offers[round];
     const fair = offer >= 4;
+    const dynamicFairnessThreshold = dynamicFairnessThresholdFor(trials);
+    const inconsistencyType = choiceInconsistencyType(offer, accept, dynamicFairnessThreshold);
     const rtMs = roundStartedAtMs ? Math.max(0, Date.now() - roundStartedAtMs) : null;
     if (fair) {
         fairTotal += 1;
@@ -116,7 +187,13 @@ function decide(accept) {
         accept,
         opponentStrategy: opponentStrategyForOffer(offer),
         fairBand: offerBand(offer),
+        offerBand: offerBand(offer),
+        offerBandLabel: offerBandLabel(offer),
         fair,
+        dynamicFairnessThreshold,
+        dynamicFairnessThresholdRatio: roundTo2(dynamicFairnessThreshold / TOTAL_PIE),
+        inconsistentChoice: inconsistencyType !== "consistent-with-dynamic-threshold",
+        inconsistencyType,
         payoff: gain,
         opponentPayoff: accept ? TOTAL_PIE - offer : 0,
         return: null,
@@ -144,6 +221,67 @@ function buildOfferDistribution() {
     }, {});
 }
 
+function buildOfferBandBreakdown() {
+    return OFFER_BANDS.map((band) => {
+        const bandTrials = trials.filter((trial) => trial.offerBand === band.id);
+        const meanRt = average(bandTrials.map((trial) => trial.rtMs));
+
+        return {
+            band: band.id,
+            range: band.label,
+            count: bandTrials.length,
+            acceptedCount: bandTrials.filter((trial) => trial.accept).length,
+            acceptanceRate: percentage(bandTrials.filter((trial) => trial.accept).length, bandTrials.length),
+            meanRtMs: roundTo0OrNull(meanRt),
+            inconsistentChoiceCount: bandTrials.filter((trial) => trial.inconsistentChoice).length
+        };
+    });
+}
+
+function buildReactionTimeByOfferBand(offerBandBreakdown) {
+    return offerBandBreakdown.reduce((acc, item) => {
+        acc[item.band] = item.meanRtMs;
+        return acc;
+    }, {});
+}
+
+function buildNextFairnessPractice(summary) {
+    if (summary.inconsistentChoiceRate >= 25) {
+        return {
+            focus: "threshold-consistency",
+            baselineThreshold: summary.dynamicFairnessThreshold,
+            rule: "下一轮先写下最低可接受报价，再连续 5 轮按同一阈值判断。",
+            targetOfferBands: ["low", "fair"],
+            feedback: "练习目标是让阈值规则更稳定，尤其比较 3/10 与 4/10 的边界。"
+        };
+    }
+    if (summary.fairnessSensitivity >= 60) {
+        return {
+            focus: "graded-fairness-sensitivity",
+            baselineThreshold: summary.dynamicFairnessThreshold,
+            rule: "下一轮把 3/10、4/10、5/10 分开记录理由，避免只用公平/不公平二分。",
+            targetOfferBands: ["low", "fair"],
+            feedback: "练习目标是细化边界报价的策略判断。"
+        };
+    }
+    if (summary.fairAcceptanceRate < 70) {
+        return {
+            focus: "fair-offer-acceptance-check",
+            baselineThreshold: summary.dynamicFairnessThreshold,
+            rule: "下一轮遇到 4/10 以上报价时先判断长期收益，再决定是否拒绝。",
+            targetOfferBands: ["fair", "generous"],
+            feedback: "练习目标是区分公平敏感性和总收益目标。"
+        };
+    }
+    return {
+        focus: "banded-fairness-calibration",
+        baselineThreshold: summary.dynamicFairnessThreshold,
+        rule: "下一轮继续按报价区间记录接受理由，并观察阈值是否随低报价后移动。",
+        targetOfferBands: ["very-low", "low", "fair", "generous"],
+        feedback: "练习目标是把报价区间、阈值和反应时间放在同一策略表里复盘。"
+    };
+}
+
 function buildSummary() {
     const accepted = trials.filter((trial) => trial.accept);
     const fairTrials = trials.filter((trial) => trial.fair);
@@ -159,8 +297,12 @@ function buildSummary() {
     const unfairAcceptanceRate = percentage(unfairTrials.filter((trial) => trial.accept).length, unfairTrials.length);
     const earlyAcceptanceRate = percentage(firstHalf.filter((trial) => trial.accept).length, firstHalf.length);
     const lateAcceptanceRate = percentage(secondHalf.filter((trial) => trial.accept).length, secondHalf.length);
+    const offerBandBreakdown = buildOfferBandBreakdown();
+    const firstHalfProfile = fairnessProfileFor(firstHalf);
+    const secondHalfProfile = fairnessProfileFor(secondHalf);
+    const inconsistentChoiceCount = trials.filter((trial) => trial.inconsistentChoice).length;
 
-    return {
+    const summary = {
         seed: sessionSeed,
         contentVersion: CONTENT_VERSION,
         rounds: TOTAL_ROUNDS,
@@ -175,9 +317,28 @@ function buildSummary() {
         earlyAcceptanceRate,
         lateAcceptanceRate,
         strategyAdaptationIndex: lateAcceptanceRate - earlyAcceptanceRate,
+        dynamicFairnessThreshold: dynamicFairnessThresholdFor(trials),
+        dynamicFairnessThresholdRatio: roundTo2(dynamicFairnessThresholdFor(trials) / TOTAL_PIE),
+        inconsistentChoiceCount,
+        inconsistentChoiceRate: percentage(inconsistentChoiceCount, trials.length),
         offerDistribution: buildOfferDistribution(),
+        offerBandBreakdown,
+        reactionTimeByOfferBand: buildReactionTimeByOfferBand(offerBandBreakdown),
+        phaseFairnessChange: {
+            early: firstHalfProfile,
+            late: secondHalfProfile,
+            fairnessSensitivityDelta: secondHalfProfile.fairnessSensitivity - firstHalfProfile.fairnessSensitivity,
+            acceptanceRateDelta: lateAcceptanceRate - earlyAcceptanceRate
+        },
+        strategyBaseline: {
+            fairOfferCutoff: DEFAULT_FAIRNESS_THRESHOLD,
+            thresholdBasis: "running-min-accepted-and-max-rejected",
+            offerBandCount: OFFER_BANDS.length
+        },
         opponentStrategy: "seeded-offer-schedule"
     };
+    summary.nextFairnessPractice = buildNextFairnessPractice(summary);
+    return summary;
 }
 
 function finish() {
@@ -213,7 +374,16 @@ function finish() {
                 acceptanceThresholdRatio: summary.acceptanceThresholdRatio,
                 fairnessSensitivity: summary.fairnessSensitivity,
                 strategyAdaptationIndex: summary.strategyAdaptationIndex,
-                offerDistribution: summary.offerDistribution
+                dynamicFairnessThreshold: summary.dynamicFairnessThreshold,
+                dynamicFairnessThresholdRatio: summary.dynamicFairnessThresholdRatio,
+                inconsistentChoiceCount: summary.inconsistentChoiceCount,
+                inconsistentChoiceRate: summary.inconsistentChoiceRate,
+                offerDistribution: summary.offerDistribution,
+                offerBandBreakdown: summary.offerBandBreakdown,
+                reactionTimeByOfferBand: summary.reactionTimeByOfferBand,
+                phaseFairnessChange: summary.phaseFairnessChange,
+                strategyBaseline: summary.strategyBaseline,
+                nextFairnessPractice: summary.nextFairnessPractice
             }
         });
     }

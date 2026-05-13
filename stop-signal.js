@@ -673,6 +673,120 @@ function estimateSsrt(goRtSamples, stopTrials) {
     };
 }
 
+function countStaircaseReversals(stopTrials) {
+    let reversalCount = 0;
+    let previousDirection = null;
+
+    stopTrials.forEach((trial) => {
+        const state = trial.staircaseState || {};
+        const rawAdjustmentMs = Number.isFinite(state.actualAdjustmentMs) && state.actualAdjustmentMs !== 0
+            ? state.actualAdjustmentMs
+            : state.intendedAdjustmentMs;
+        const currentDirection = Math.sign(rawAdjustmentMs);
+
+        if (!currentDirection) {
+            return;
+        }
+
+        if (previousDirection !== null && currentDirection !== previousDirection) {
+            reversalCount += 1;
+        }
+
+        previousDirection = currentDirection;
+    });
+
+    return reversalCount;
+}
+
+function buildNextPracticeRecommendation(summary) {
+    if (summary.goWaitingFlag || summary.strategicSlowingFlag) {
+        return "下一轮建议：不要等待 stop 信号再按键，保持 Go 反应自然、快速且一致，把整体反应速度拉回正常区间，让 SSRT 更接近真实抑制边界。";
+    }
+
+    if (summary.staircaseQualityLabel === "insufficient") {
+        return "下一轮建议：继续完成更多 stop trial，先把 staircase 样本补足；同时把 stop 成功率稳定在中间区间，避免 SSRT 只剩单个数值没有可用性判断。";
+    }
+
+    if (summary.staircaseClampCount > 0) {
+        return "下一轮建议：当前 SSD 已碰到上下限，继续保持正常 Go 速度，让 staircase 回到中间区间，这样后续 SSD 才更有解释力。";
+    }
+
+    if (summary.staircaseQualityLabel === "weak") {
+        return "下一轮建议：当前 staircase 还不够稳定，继续练习并把 stop 成功率往 50% 附近拉；只有这样，SSD 和 SSRT 才更可信。";
+    }
+
+    return "下一轮建议：维持当前节奏，继续保持 Go 快而稳、Stop 成功率接近 50%，让 staircase 在可解释区间内围绕边界收敛。";
+}
+
+function analyzeStopSignalQuality(stopTrials, goResponseTrials, stopSuccessRate) {
+    const staircaseClampCount = stopTrials.filter((trial) => trial.staircaseState && trial.staircaseState.clamped).length;
+    const usableStopSampleCount = stopTrials.length - staircaseClampCount;
+    const staircaseReversalCount = countStaircaseReversals(stopTrials);
+    const staircaseClampRate = ratio(staircaseClampCount, stopTrials.length);
+    const usableStopSampleRate = ratio(usableStopSampleCount, stopTrials.length);
+    const staircaseReversalRate = ratio(staircaseReversalCount, Math.max(0, usableStopSampleCount - 1));
+    const goWaitingThresholdMs = 650;
+    const lateGoThresholdMs = 900;
+    const goWaitingCount = goResponseTrials.filter((trial) => Number.isFinite(trial.rtMs) && trial.rtMs >= goWaitingThresholdMs).length;
+    const lateGoResponseCount = goResponseTrials.filter((trial) => Number.isFinite(trial.rtMs) && trial.rtMs >= lateGoThresholdMs).length;
+    const goWaitingRate = ratio(goWaitingCount, goResponseTrials.length);
+    const lateGoResponseRate = ratio(lateGoResponseCount, goResponseTrials.length);
+    const goResponseMeanMs = averageRoundedOrNull(goResponseTrials.map((trial) => trial.rtMs));
+    const goWaitingFlag = goResponseTrials.length > 0 && (
+        goWaitingRate >= 0.35
+        || lateGoResponseRate >= 0.2
+        || (Number.isFinite(goResponseMeanMs) && goResponseMeanMs >= 650)
+    );
+    const strategicSlowingFlag = goWaitingFlag && (
+        stopSuccessRate >= 0.65
+        || goWaitingRate >= 0.45
+        || (Number.isFinite(goResponseMeanMs) && goResponseMeanMs >= 700)
+    );
+    const stopBalanceScore = 1 - Math.min(1, Math.abs(stopSuccessRate - 0.5) * 2);
+    const sampleCoverageScore = usableStopSampleRate;
+    const clampPenaltyScore = 1 - staircaseClampRate;
+    const reversalCoverageScore = ratio(staircaseReversalCount, Math.max(1, usableStopSampleCount - 1));
+    const ssdStaircaseQuality = Math.max(0, Math.min(1, (
+        (stopBalanceScore * 0.4)
+        + (sampleCoverageScore * 0.3)
+        + (clampPenaltyScore * 0.2)
+        + (Math.min(1, reversalCoverageScore) * 0.1)
+    )));
+    let staircaseQualityLabel = "weak";
+
+    if (stopTrials.length < 3 || usableStopSampleCount < 3) {
+        staircaseQualityLabel = "insufficient";
+    } else if (ssdStaircaseQuality >= 0.75 && staircaseClampRate <= 0.1) {
+        staircaseQualityLabel = "strong";
+    } else if (ssdStaircaseQuality >= 0.55) {
+        staircaseQualityLabel = "usable";
+    }
+
+    const staircaseQualityNote = staircaseQualityLabel === "insufficient"
+        ? "stop 样本太少或可用 staircase 样本不足，SSRT/SSD 只适合看趋势。"
+        : staircaseClampCount > 0
+            ? "部分 stop trial 已触及 SSD 上下限，说明 staircase 有边界压力。"
+            : staircaseReversalCount < 2
+                ? "staircase 调整回转次数偏少，说明边界附近的采样还不够。"
+                : "staircase 样本分布较完整，可用于同任务内比较。";
+
+    return {
+        staircaseClampCount,
+        staircaseClampRate,
+        staircaseReversalCount,
+        staircaseReversalRate,
+        usableStopSampleCount,
+        usableStopSampleRate,
+        ssdStaircaseQuality,
+        staircaseQualityLabel,
+        staircaseQualityNote,
+        goWaitingRate,
+        lateGoResponseRate,
+        goWaitingFlag,
+        strategicSlowingFlag
+    };
+}
+
 function buildSummary() {
     const totalTrials = trialLog.length;
     const goTrials = trialLog.filter((trial) => trial.trialType === "go");
@@ -693,6 +807,13 @@ function buildSummary() {
         goCorrectTrials.map((trial) => trial.rtMs),
         stopTrials
     );
+    const stopSignalQuality = analyzeStopSignalQuality(stopTrials, goResponseTrials, stopSuccessRate);
+    const nextPracticeRecommendation = buildNextPracticeRecommendation({
+        ...stopSignalQuality,
+        goMeanRtMs,
+        goResponseMeanRtMs,
+        stopSuccessRate
+    });
 
     return {
         totalTrials,
@@ -736,6 +857,7 @@ function buildSummary() {
         meanSsdMs: ssrt.meanSsdMs,
         meanSSD: ssrt.meanSsdMs,
         ssdTrajectory,
+        ...stopSignalQuality,
         ...postStopSlowing,
         classificationCounts: countByClassification(),
         ssrtEstimateMs: ssrt.ssrtMs,
@@ -747,6 +869,7 @@ function buildSummary() {
         goRtPercentileMs: ssrt.goRtPercentileMs,
         ssrtPercentileRank: ssrt.percentileRank,
         goRtSampleCount: ssrt.goRtSampleCount,
+        nextPracticeRecommendation,
         seed: sessionSeed,
         sessionSeed,
         contentVersion: CONTENT_VERSION
@@ -764,6 +887,7 @@ function buildTrainingFeedback(summary) {
         ? `Go 平均正确反应 ${summary.goMeanRtMs}ms`
         : "Go 正确反应样本不足";
     const stopText = `停止成功率 ${formatPercent(summary.stopSuccessRate)}（${summary.stopSuccessCount}/${summary.stopTrials}）`;
+    const qualityText = `staircase 质量 ${summary.staircaseQualityLabel}（${Math.round(summary.ssdStaircaseQuality * 100)}%）`;
     const slowingText = Number.isFinite(summary.postStopSlowingMs)
         ? `停后 Go 反应变化 ${formatSignedMs(summary.postStopSlowingMs)}`
         : "停后减速样本不足";
@@ -774,8 +898,8 @@ function buildTrainingFeedback(summary) {
     let advice = "下一轮建议：保持快速 Go 反应，同时继续让 stop 成功率靠近 50%，这样 SSD staircase 才能贴近你的抑制边界。";
     if (summary.goAccuracy < 0.85 || summary.goOmissionCount >= 3) {
         advice = "下一轮建议：先提高 Go 方向反应稳定性，看到箭头立即按对应方向；Go 基线稳定后，SSRT 才更有解释力。";
-    } else if (summary.stopSuccessRate >= 0.75 && summary.goMeanRtMs >= 700) {
-        advice = "下一轮建议：停止成功率很高但 Go 反应偏慢，可能在等待停止信号；请优先保持快速反应，不要为了抑制而拖慢所有 Go。";
+    } else if (summary.goWaitingFlag || summary.strategicSlowingFlag) {
+        advice = "下一轮建议：目前存在等待 stop 信号或策略性放慢的迹象；请把 Go 反应拉回自然快速区间，不要靠整体变慢换取更高停止成功率。";
     } else if (summary.stopSuccessRate <= 0.25) {
         advice = "下一轮建议：停止失败较多，先把注意焦点放在红色边框出现后的立即刹车；系统会降低 SSD，让任务回到可训练区间。";
     } else if (summary.stopSuccessRate >= 0.75) {
@@ -786,7 +910,7 @@ function buildTrainingFeedback(summary) {
         advice = "下一轮建议：停后减速较明显，说明停止信号影响了后续 Go 反应；继续保持快速、准确的 Go 基线。";
     }
 
-    return `${speedText}；${stopText}；${slowingText}。Stop Signal 训练的关键不是单纯越快越好，也不是停止成功率越高越好，而是在快速反应和及时抑制之间找到边界。${methodText}。${advice}`;
+    return `${speedText}；${stopText}；${qualityText}；${slowingText}。Stop Signal 训练的关键不是单纯越快越好，也不是停止成功率越高越好，而是在快速反应和及时抑制之间找到边界。${methodText}。${summary.nextPracticeRecommendation || advice}`;
 }
 
 function buildSsrtMethodText(summary) {
@@ -839,6 +963,25 @@ function saveTrainingSession(finishedAt, summary) {
             finalSSD: `${summary.finalSsdMs}ms`,
             finalSsdMs: summary.finalSsdMs,
             ssdTrajectory: summary.ssdTrajectory,
+            staircaseQualityLabel: summary.staircaseQualityLabel,
+            ssdStaircaseQuality: summary.ssdStaircaseQuality,
+            staircaseQualityNote: summary.staircaseQualityNote,
+            staircaseClampCount: summary.staircaseClampCount,
+            staircaseClampRate: formatPercent(summary.staircaseClampRate),
+            staircaseClampRateValue: summary.staircaseClampRate,
+            staircaseReversalCount: summary.staircaseReversalCount,
+            staircaseReversalRate: formatPercent(summary.staircaseReversalRate),
+            staircaseReversalRateValue: summary.staircaseReversalRate,
+            usableStopSampleCount: summary.usableStopSampleCount,
+            usableStopSampleRate: formatPercent(summary.usableStopSampleRate),
+            usableStopSampleRateValue: summary.usableStopSampleRate,
+            goWaitingRate: formatPercent(summary.goWaitingRate),
+            goWaitingRateValue: summary.goWaitingRate,
+            lateGoResponseRate: formatPercent(summary.lateGoResponseRate),
+            lateGoResponseRateValue: summary.lateGoResponseRate,
+            goWaitingFlag: summary.goWaitingFlag,
+            strategicSlowingFlag: summary.strategicSlowingFlag,
+            nextPracticeRecommendation: summary.nextPracticeRecommendation,
             pRespondOnStop: summary.pRespondOnStop,
             postStopSlowing: formatSignedMs(summary.postStopSlowingMs),
             postStopSlowingMs: summary.postStopSlowingMs,

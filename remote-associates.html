@@ -49,6 +49,27 @@
             color: #34495e;
             font-weight: 600;
         }
+
+        .rat-actions {
+            display: flex;
+            justify-content: center;
+            gap: 8px;
+            margin-top: 12px;
+            flex-wrap: wrap;
+        }
+
+        .rat-hint {
+            min-height: 24px;
+            margin: 12px 0 0;
+            color: #5d6d7e;
+            font-size: 0.95rem;
+        }
+
+        .result-note {
+            margin: 10px 0 0;
+            color: #5d6d7e;
+            line-height: 1.5;
+        }
     </style>
 </head>
 <body>
@@ -85,8 +106,11 @@
                     <div class="rat-box">
                         <div class="rat-triad" id="triad"></div>
                         <input class="rat-input" id="answer" placeholder="输入联想词">
-                        <div style="margin-top:12px;">
+                        <p class="rat-hint" id="hint-text"></p>
+                        <div class="rat-actions">
                             <button class="btn primary" id="submit-btn">提交</button>
+                            <button class="btn" id="hint-btn" type="button">提示</button>
+                            <button class="btn" id="giveup-btn" type="button">放弃</button>
                         </div>
                     </div>
                     <p class="rat-feedback" id="feedback"></p>
@@ -108,9 +132,10 @@
                             <span class="stat-value" id="result-avg-time">0s</span>
                         </div>
                         <div class="result-stat">
-                            <span class="stat-label">总用时</span>
+                            <span class="stat-label">放弃/提示</span>
                             <span class="stat-value warning" id="result-total-time">0s</span>
                         </div>
+                        <p class="result-note" id="result-note"></p>
                     </div>
                     <div class="modal-footer">
                         <button class="btn-primary" onclick="location.reload()">再试一次</button>

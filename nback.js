@@ -443,13 +443,74 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function buildNBackPrescription(summary, loadAssessment, recommendation, nextN, nextSpeedMs, nextRounds, reason) {
+        const hasAdaptiveStabilitySignal = summary && summary.isAdaptive && summary.reversalCount > 0;
+        const stabilitySuffix = hasAdaptiveStabilitySignal
+            ? `；staircase ${summary.adaptiveStabilityLabel}（N 反转 ${summary.nLevelOscillationCount} 次，速度反转 ${summary.speedOscillationCount} 次，波动 ${Math.round(summary.adaptationVolatility * 100)}%）`
+            : "";
         return {
             loadAssessment,
             recommendation,
             nextRecommendedN: clampNumber(nextN, 0, 5),
             nextRecommendedSpeedMs: clampNumber(nextSpeedMs, 1000, 5000),
             nextRecommendedRounds: clampNumber(nextRounds, 5, 100),
-            nextPrescriptionReason: reason
+            nextPrescriptionReason: `${reason}${stabilitySuffix}`
+        };
+    }
+
+    function countDirectionReversals(values) {
+        let previousDirection = 0;
+        let reversalCount = 0;
+
+        values.forEach(value => {
+            const direction = Math.sign(value);
+            if (direction === 0) return;
+            if (previousDirection !== 0 && direction !== previousDirection) {
+                reversalCount += 1;
+            }
+            previousDirection = direction;
+        });
+
+        return reversalCount;
+    }
+
+    function analyzeAdaptiveStability(adaptationEventList, adaptiveModeEnabled) {
+        const relevantEvents = adaptationEventList.filter(event => event && event.direction !== "hold");
+        const nDirectionSteps = relevantEvents
+            .map(event => (Number.isFinite(event.toN) && Number.isFinite(event.fromN) ? event.toN - event.fromN : 0))
+            .filter(delta => delta !== 0);
+        const speedDirectionSteps = relevantEvents
+            .map(event => (Number.isFinite(event.toSpeedMs) && Number.isFinite(event.fromSpeedMs) ? event.toSpeedMs - event.fromSpeedMs : 0))
+            .filter(delta => delta !== 0);
+        const nLevelOscillationCount = countDirectionReversals(nDirectionSteps);
+        const speedOscillationCount = countDirectionReversals(speedDirectionSteps);
+        const reversalCount = nLevelOscillationCount + speedOscillationCount;
+        const changeCount = relevantEvents.length;
+        const adaptationVolatility = changeCount > 1
+            ? roundMetric(clampNumber(reversalCount / (changeCount - 1), 0, 1))
+            : 0;
+        const adaptiveStabilityScore = roundMetric((1 - adaptationVolatility) * 100, 0);
+
+        let adaptiveStabilityLabel = "stable";
+        if (!adaptiveModeEnabled) {
+            adaptiveStabilityLabel = "fixed-level";
+        } else if (changeCount === 0) {
+            adaptiveStabilityLabel = "stable";
+        } else if (adaptiveStabilityScore >= 80) {
+            adaptiveStabilityLabel = "stable";
+        } else if (adaptiveStabilityScore >= 55) {
+            adaptiveStabilityLabel = "mixed";
+        } else {
+            adaptiveStabilityLabel = "volatile";
+        }
+
+        return {
+            adaptiveStabilityLabel,
+            loadStability: adaptiveStabilityLabel,
+            adaptiveStabilityScore,
+            nLevelOscillationCount,
+            speedOscillationCount,
+            reversalCount,
+            adaptationVolatility
         };
     }
 
@@ -546,6 +607,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const signalDetection = signalDetectionStats(hitCount, falseAlarmCount, targetTrials, nonTargetTrials);
         const nLevels = history.map(trial => trial.nLevel).filter(value => Number.isFinite(value));
+        const adaptiveStability = analyzeAdaptiveStability(adaptationEvents, isAdaptiveMode);
         const summary = {
             totalTrials,
             nLevel: n,
@@ -555,6 +617,7 @@ document.addEventListener('DOMContentLoaded', () => {
             isAdaptive: isAdaptiveMode,
             adaptationBlockSize: ADAPTIVE_BLOCK_SIZE,
             adaptationEvents: adaptationEvents.map(event => ({ ...event })),
+            ...adaptiveStability,
             nProgression,
             minNLevel: nLevels.length ? Math.min(...nLevels) : n,
             maxNLevel: nLevels.length ? Math.max(...nLevels) : n,
@@ -923,6 +986,13 @@ document.addEventListener('DOMContentLoaded', () => {
                 finalNLevel: finalSummary.finalNLevel,
                 sessionType: finalSummary.sessionType,
                 isAdaptive: finalSummary.isAdaptive,
+                adaptiveStabilityLabel: finalSummary.adaptiveStabilityLabel,
+                loadStability: finalSummary.loadStability,
+                adaptiveStabilityScore: finalSummary.adaptiveStabilityScore,
+                nLevelOscillationCount: finalSummary.nLevelOscillationCount,
+                speedOscillationCount: finalSummary.speedOscillationCount,
+                reversalCount: finalSummary.reversalCount,
+                adaptationVolatility: finalSummary.adaptationVolatility,
                 nProgression: finalSummary.nProgression,
                 adaptationEvents: finalSummary.adaptationEvents,
                 loadAssessment: finalSummary.loadAssessment,

@@ -18,6 +18,7 @@ const GameState = {
     rng: null,
     currentOptions: [],
     currentOptionValidation: null,
+    currentOptionRationales: [],
     validationIssues: [],
     validationIssueCount: 0,
     generatedTemplateCount: 0
@@ -54,6 +55,19 @@ const RULE_LABELS = {
     shape_addition: "图形组合",
     size_reduction: "尺寸递减",
     complex_progression: "复合规则"
+};
+
+const RULE_FAMILY_LABELS = {
+    shape_identity: "identity",
+    shape_progression: "sequential_progression",
+    size_progression: "sequential_progression",
+    rotation_progression: "sequential_progression",
+    shape_distribution: "distribution",
+    fill_alternation: "alternation",
+    count_progression: "sequential_progression",
+    shape_addition: "composition",
+    size_reduction: "sequential_progression",
+    complex_progression: "multi_property_progression"
 };
 
 const ERROR_LABELS = {
@@ -150,9 +164,51 @@ function normalizeAngle(value) {
     return ((value % 360) + 360) % 360;
 }
 
+function getRuleFamily(ruleId, puzzleType) {
+    return RULE_FAMILY_LABELS[ruleId] || puzzleType || "matrix_completion";
+}
+
+function buildTemplateId(level, index) {
+    if (level.templateId) return level.templateId;
+    if (level.ruleTemplateId) return level.ruleTemplateId;
+    if (level.ruleId) return `${level.ruleId}_static_v1`;
+    const meta = RULE_METADATA[level.rule] || {};
+    return `${meta.ruleId || `rule_${index + 1}`}_static_v1`;
+}
+
+function buildAnswerRationale(level) {
+    const ruleId = level.ruleId || (RULE_METADATA[level.rule] || {}).ruleId || "unknown_rule";
+    const label = RULE_LABELS[ruleId] || level.rule || "矩阵规则";
+    const parameterText = level.generated && level.parameters
+        ? ` 参数化字段已保存：${Object.keys(level.parameters).sort().join("、") || "none"}。`
+        : "";
+
+    const rationaleByRule = {
+        shape_identity: "每一行保持同一形状，缺失格延续第三行已出现的形状。",
+        shape_progression: "形状按行列位置在模板序列中递进，缺失格由同一序列位置推出。",
+        size_progression: "每行尺寸按列递增，缺失格取第三列对应尺寸。",
+        rotation_progression: "同一行旋转角按固定步长变化，缺失格延续该角度步长。",
+        shape_distribution: "每行和每列应覆盖同一组形状，缺失格补足未出现形状。",
+        fill_alternation: "填充状态按行列奇偶交替，缺失格延续交替模式。",
+        count_progression: "数量按列递进，缺失格取该行第三列数量。",
+        shape_addition: "第三列由前两列视觉部件组合得到，缺失格应是组合结果。",
+        size_reduction: "每行尺寸按列递减，缺失格取第三列对应尺寸。",
+        complex_progression: "形状、填充与旋转同时按行列规则变化，缺失格需同时满足多个属性。"
+    };
+
+    return `${label}：${rationaleByRule[ruleId] || "缺失格由同一矩阵规则推导。"}${parameterText}`;
+}
+
+function buildDistractorRationale(level) {
+    const ruleId = level.ruleId || (RULE_METADATA[level.rule] || {}).ruleId || "unknown_rule";
+    const label = RULE_LABELS[ruleId] || level.rule || "矩阵规则";
+    return `${label} 干扰项通过改变一个或多个关键属性生成，用于区分规则推理与固定答案记忆。`;
+}
+
 function createTemplateLevel(templateId, variantSeed, parameters, level) {
     return {
         ...level,
+        templateId: `${templateId}_template_v1`,
         ruleTemplateId: `${templateId}_template_v1`,
         variantSeed,
         parameters,
@@ -506,14 +562,31 @@ function generateLevels(sessionSeed) {
 
 function enrichLevelMetadata(level, index) {
     const meta = RULE_METADATA[level.rule] || {};
+    const ruleId = level.ruleId || meta.ruleId || `rule_${index + 1}`;
+    const templateId = buildTemplateId({ ...level, ruleId }, index);
+    const puzzleType = level.puzzleType || meta.puzzleType || "matrix_completion";
     return {
         ...level,
-        ruleId: level.ruleId || meta.ruleId || `rule_${index + 1}`,
-        ruleTemplateId: level.ruleTemplateId || level.ruleId || meta.ruleId || `rule_${index + 1}`,
-        puzzleType: level.puzzleType || meta.puzzleType || "matrix_completion",
+        ruleId,
+        templateId,
+        ruleTemplateId: level.ruleTemplateId || templateId,
+        ruleFamily: level.ruleFamily || getRuleFamily(ruleId, puzzleType),
+        puzzleType,
         variantSeed: level.variantSeed || null,
         parameters: level.parameters || {},
-        generated: Boolean(level.generated)
+        generated: Boolean(level.generated),
+        answerRationale: level.answerRationale || buildAnswerRationale({
+            ...level,
+            ruleId,
+            puzzleType,
+            templateId
+        }),
+        distractorRationale: level.distractorRationale || buildDistractorRationale({
+            ...level,
+            ruleId,
+            puzzleType,
+            templateId
+        })
     };
 }
 
@@ -600,6 +673,7 @@ function initGame() {
     GameState.answerLocked = false;
     GameState.currentOptions = [];
     GameState.currentOptionValidation = null;
+    GameState.currentOptionRationales = [];
     GameState.validationIssues = [];
     GameState.validationIssueCount = 0;
     

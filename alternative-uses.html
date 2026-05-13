@@ -42,6 +42,12 @@
             color: #7f8c8d;
             font-size: 0.92rem;
         }
+
+        .aut-result-note {
+            margin: 14px 0 0;
+            color: #34495e;
+            line-height: 1.6;
+        }
     </style>
 </head>
 <body>
@@ -97,13 +103,14 @@
                             <span class="stat-value highlight" id="result-fluency">0</span>
                         </div>
                         <div class="result-stat">
-                            <span class="stat-label">词汇多样性</span>
+                            <span class="stat-label">类别跨度（灵活性）</span>
                             <span class="stat-value" id="result-diversity">0%</span>
                         </div>
                         <div class="result-stat">
-                            <span class="stat-label">平均描述长度</span>
+                            <span class="stat-label">平均细化程度</span>
                             <span class="stat-value warning" id="result-length">0</span>
                         </div>
+                        <p class="aut-result-note" id="result-note"></p>
                     </div>
                     <div class="modal-footer">
                         <button class="btn-primary" onclick="location.reload()">再试一次</button>

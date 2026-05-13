@@ -276,9 +276,122 @@ document.addEventListener('DOMContentLoaded', () => {
         return Math.min(max, Math.max(min, value));
     }
 
+    function clamp01(value) {
+        return clampNumber(value, 0, 1);
+    }
+
+    function getAdaptiveStabilityLabel(spanStability, adaptationVolatility) {
+        if (spanStability >= 0.8 && adaptationVolatility <= 0.2) return '高度稳定';
+        if (spanStability >= 0.65 && adaptationVolatility <= 0.35) return '较稳定';
+        if (spanStability >= 0.45 && adaptationVolatility <= 0.55) return '波动可控';
+        return '不稳定';
+    }
+
+    function analyzeAdaptationDynamics(events, totalTrials, exactAccuracy, positionAccuracy) {
+        if (totalTrials === 0) {
+            return {
+                moveCount: 0,
+                holdCount: 0,
+                holdRate: 0,
+                reversalCount: 0,
+                reversalRate: 0,
+                spanOscillationCount: 0,
+                oscillationRate: 0,
+                adaptationVolatility: 0,
+                spanStability: 0,
+                adaptiveStabilityLabel: '样本不足'
+            };
+        }
+
+        const moveEvents = [];
+        const spanHistory = [];
+        let reversalCount = 0;
+        let spanOscillationCount = 0;
+        let previousMoveDirection = 0;
+
+        for (let i = 0; i < events.length; i++) {
+            const event = events[i];
+            const delta = event.spanAfter - event.spanBefore;
+            const direction = delta > 0 ? 1 : delta < 0 ? -1 : 0;
+
+            if (direction !== 0) {
+                moveEvents.push(direction);
+                if (previousMoveDirection !== 0 && direction !== previousMoveDirection) {
+                    reversalCount += 1;
+                }
+                previousMoveDirection = direction;
+            }
+
+            if (spanHistory.length >= 2) {
+                const previousSpan = spanHistory[spanHistory.length - 1];
+                const twoBackSpan = spanHistory[spanHistory.length - 2];
+                if (event.spanAfter === twoBackSpan && event.spanAfter !== previousSpan) {
+                    spanOscillationCount += 1;
+                }
+            }
+
+            spanHistory.push(event.spanAfter);
+        }
+
+        const moveCount = moveEvents.length;
+        const holdCount = events.filter(event => event.action === 'hold').length;
+        const holdRate = totalTrials > 0 ? holdCount / totalTrials : 0;
+        const reversalRate = moveCount > 1 ? reversalCount / (moveCount - 1) : 0;
+        const oscillationRate = totalTrials > 2 ? spanOscillationCount / (totalTrials - 2) : 0;
+        const adaptationVolatility = clamp01((reversalRate * 0.65) + (oscillationRate * 0.35));
+        const spanStability = clamp01(
+            ((1 - adaptationVolatility) * 0.55) +
+            (holdRate * 0.2) +
+            (exactAccuracy * 0.15) +
+            (positionAccuracy * 0.1)
+        );
+
+        return {
+            moveCount,
+            holdCount,
+            holdRate,
+            reversalCount,
+            reversalRate,
+            spanOscillationCount,
+            oscillationRate,
+            adaptationVolatility,
+            spanStability,
+            adaptiveStabilityLabel: getAdaptiveStabilityLabel(spanStability, adaptationVolatility)
+        };
+    }
+
+    function computeModeTransitionReadiness(summary) {
+        const performanceCore = clamp01((summary.exactAccuracy * 0.6) + (summary.positionAccuracy * 0.4));
+        const stabilityCore = clamp01(summary.spanStability);
+        const forwardBonus = summary.sequenceMode === 'forward' ? 0.12 : 0.04;
+        const backwardBonus = summary.sequenceMode === 'backward' ? 0.12 : 0.04;
+        const sortedBonus = summary.sequenceMode === 'sorted' ? 0.12 : 0.04;
+
+        const backwardReadiness = clamp01((performanceCore * 0.55) + (stabilityCore * 0.35) + forwardBonus);
+        const sortedReadiness = clamp01((performanceCore * 0.5) + (stabilityCore * 0.4) + backwardBonus);
+
+        return {
+            backwardReadiness,
+            sortedReadiness,
+            modeTransitionReadiness: {
+                backward: backwardReadiness,
+                backwardReadiness,
+                sorted: sortedReadiness,
+                sortedReadiness,
+                currentMode: summary.sequenceMode,
+                currentModeBonus: summary.sequenceMode === 'sorted' ? sortedBonus : summary.sequenceMode === 'backward' ? backwardBonus : forwardBonus
+            }
+        };
+    }
+
     function buildDigitSpanPrescription(summary) {
         const currentStart = clampNumber(summary.startingSpan || summary.startSpan || START_SPAN, MIN_SPAN, MAX_SPAN);
         const stableSpan = clampNumber(summary.maxSuccessfulSpan || summary.maxSpan || currentStart, MIN_SPAN, MAX_SPAN);
+        const instabilityThreshold = summary.spanStability < 0.5 || summary.adaptationVolatility >= 0.55 || summary.reversalCount >= 2;
+        const transitionReadiness = summary.modeTransitionReadiness || {
+            backward: summary.backwardReadiness,
+            sorted: summary.sortedReadiness
+        };
 
         if (summary.terminationReason === 'manual_stop' || summary.totalTrials === 0) {
             return {
@@ -288,19 +401,28 @@ document.addEventListener('DOMContentLoaded', () => {
             };
         }
 
-        if (summary.exactAccuracy >= 0.8 && summary.sequenceMode === 'forward' && stableSpan >= 6) {
+        if (instabilityThreshold) {
+            const loweredStart = clampNumber(Math.max(MIN_SPAN, currentStart - 1), MIN_SPAN, MAX_SPAN);
             return {
-                nextStartSpan: clampNumber(Math.max(START_SPAN, stableSpan - 1), MIN_SPAN, MAX_SPAN),
-                nextMode: 'backward',
-                nextPrescriptionReason: '正向广度已较稳定，下一轮切换倒背以增加工作记忆操作负荷。'
+                nextStartSpan: loweredStart,
+                nextMode: summary.sequenceMode,
+                nextPrescriptionReason: `本轮阶梯稳定性偏低（${summary.adaptiveStabilityLabel}，震荡 ${summary.spanOscillationCount} 次，反转 ${summary.reversalCount} 次，波动 ${Math.round(summary.adaptationVolatility * 100)}%），下一轮先把起始长度调到 ${loweredStart} 并保持 ${summary.sequenceMode}，优先稳住当前 span。`
             };
         }
 
-        if (summary.exactAccuracy >= 0.8 && summary.sequenceMode === 'backward' && stableSpan >= 6) {
+        if (summary.exactAccuracy >= 0.8 && summary.sequenceMode === 'forward' && stableSpan >= 6 && transitionReadiness.backward >= 0.72) {
+            return {
+                nextStartSpan: clampNumber(Math.max(START_SPAN, stableSpan - 1), MIN_SPAN, MAX_SPAN),
+                nextMode: 'backward',
+                nextPrescriptionReason: `正向广度已较稳定（${summary.adaptiveStabilityLabel}，质量 ${Math.round(summary.staircaseQuality * 100)}%），倒背 readiness 已达 ${Math.round(transitionReadiness.backward * 100)}%，下一轮切换倒背以增加工作记忆操作负荷。`
+            };
+        }
+
+        if (summary.exactAccuracy >= 0.8 && summary.sequenceMode === 'backward' && stableSpan >= 6 && transitionReadiness.sorted >= 0.72) {
             return {
                 nextStartSpan: clampNumber(Math.max(START_SPAN, stableSpan - 1), MIN_SPAN, MAX_SPAN),
                 nextMode: 'sorted',
-                nextPrescriptionReason: '倒背广度已较稳定，下一轮切换升序整理以训练短时保持后的重排能力。'
+                nextPrescriptionReason: `倒背广度已较稳定（${summary.adaptiveStabilityLabel}，质量 ${Math.round(summary.staircaseQuality * 100)}%），升序整理 readiness 已达 ${Math.round(transitionReadiness.sorted * 100)}%，下一轮切换升序整理以训练短时保持后的重排能力。`
             };
         }
 
@@ -308,7 +430,7 @@ document.addEventListener('DOMContentLoaded', () => {
             return {
                 nextStartSpan: clampNumber(stableSpan, MIN_SPAN, MAX_SPAN),
                 nextMode: summary.sequenceMode,
-                nextPrescriptionReason: '正确率达标，下一轮从本轮稳定达到的广度附近继续训练。'
+                nextPrescriptionReason: `正确率达标且阶梯质量尚可（${summary.adaptiveStabilityLabel}，质量 ${Math.round(summary.staircaseQuality * 100)}%），下一轮从本轮稳定达到的广度附近继续训练。`
             };
         }
 
@@ -316,14 +438,14 @@ document.addEventListener('DOMContentLoaded', () => {
             return {
                 nextStartSpan: clampNumber(Math.max(MIN_SPAN, summary.startingSpan - 1), MIN_SPAN, MAX_SPAN),
                 nextMode: 'forward',
-                nextPrescriptionReason: '位置正确率或最终广度偏低，下一轮降低起始负荷并优先稳定顺序回忆。'
+                nextPrescriptionReason: `位置正确率或最终广度偏低，且阶梯质量为 ${summary.adaptiveStabilityLabel}（质量 ${Math.round(summary.staircaseQuality * 100)}%），下一轮降低起始负荷并优先稳定顺序回忆。`
             };
         }
 
         return {
             nextStartSpan: currentStart,
             nextMode: summary.sequenceMode,
-            nextPrescriptionReason: '当前负荷基本合适，下一轮保持起始长度和模式巩固稳定性。'
+            nextPrescriptionReason: `当前负荷基本合适（${summary.adaptiveStabilityLabel}，质量 ${Math.round(summary.staircaseQuality * 100)}%），下一轮保持起始长度和模式巩固稳定性。`
         };
     }
 
@@ -335,6 +457,13 @@ document.addEventListener('DOMContentLoaded', () => {
         const positionAccuracy = mean(trialLog.map(trial => trial.positionAccuracy));
         const responseDurations = trialLog.map(trial => trial.responseDurationMs);
         const attemptedSpans = trialLog.map(trial => trial.span);
+        const adaptationMetrics = analyzeAdaptationDynamics(adaptationEvents, totalTrials, exactAccuracy, positionAccuracy);
+        const modeTransitionReadiness = computeModeTransitionReadiness({
+            exactAccuracy,
+            positionAccuracy,
+            spanStability: adaptationMetrics.spanStability,
+            sequenceMode: state.mode
+        });
         const spanProgression = trialLog.map(trial => ({
             trialIndex: trial.index,
             span: trial.span,
@@ -364,6 +493,19 @@ document.addEventListener('DOMContentLoaded', () => {
             accuracy,
             exactAccuracy,
             positionAccuracy,
+            spanStability: adaptationMetrics.spanStability,
+            adaptiveStabilityLabel: adaptationMetrics.adaptiveStabilityLabel,
+            staircaseQuality: clamp01(
+                (adaptationMetrics.spanStability * 0.45) +
+                (exactAccuracy * 0.35) +
+                (positionAccuracy * 0.2)
+            ),
+            spanOscillationCount: adaptationMetrics.spanOscillationCount,
+            reversalCount: adaptationMetrics.reversalCount,
+            adaptationVolatility: adaptationMetrics.adaptationVolatility,
+            backwardReadiness: modeTransitionReadiness.backwardReadiness,
+            sortedReadiness: modeTransitionReadiness.sortedReadiness,
+            modeTransitionReadiness: modeTransitionReadiness.modeTransitionReadiness,
             sequenceMode: state.mode,
             spanProgression,
             adaptationEvents: adaptationEvents.map(copyAdaptationEvent),
@@ -440,6 +582,15 @@ document.addEventListener('DOMContentLoaded', () => {
                 exactAccuracyPct: `${Math.round(summary.exactAccuracy * 100)}%`,
                 positionAccuracy: summary.positionAccuracy,
                 positionAccuracyPct: `${Math.round(summary.positionAccuracy * 100)}%`,
+                spanStability: summary.spanStability,
+                adaptiveStabilityLabel: summary.adaptiveStabilityLabel,
+                staircaseQuality: summary.staircaseQuality,
+                spanOscillationCount: summary.spanOscillationCount,
+                reversalCount: summary.reversalCount,
+                adaptationVolatility: summary.adaptationVolatility,
+                backwardReadiness: summary.backwardReadiness,
+                sortedReadiness: summary.sortedReadiness,
+                modeTransitionReadiness: summary.modeTransitionReadiness,
                 sequenceMode: summary.sequenceMode,
                 spanProgression: summary.spanProgression,
                 adaptationEvents: summary.adaptationEvents,

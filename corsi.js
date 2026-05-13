@@ -25,6 +25,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const ADAPTIVE_MAX_TRIALS = 16;
     const ADAPTIVE_WINDOW_SIZE = 3;
     const ADAPTIVE_UP_STREAK = 2;
+    const STABILITY_ADVANCE_THRESHOLD = 0.65;
+    const STABILITY_SWITCH_THRESHOLD = 0.72;
 
     let blocks = [];
     let blockLayout = [];
@@ -387,6 +389,127 @@ document.addEventListener('DOMContentLoaded', () => {
         };
     }
 
+    function analyzeSpanStability(summaryCore) {
+        const spanTrace = trialLog.map(trial => {
+            const span = Number.isFinite(trial.spanAfterTrial)
+                ? trial.spanAfterTrial
+                : (Number.isFinite(trial.spanBeforeTrial) ? trial.spanBeforeTrial : currentLevel);
+            return {
+                trialIndex: trial.index,
+                span
+            };
+        });
+
+        if (spanTrace.length <= 1) {
+            return {
+                spanOscillationCount: 0,
+                reversalCount: 0,
+                adaptationVolatility: 0,
+                spanStability: 1,
+                staircaseQuality: roundMetric(clampNumber(summaryCore.accuracy || 0, 0, 1)),
+                adaptiveStabilityLabel: 'insufficient-data',
+                backwardReadiness: roundMetric(clampNumber((summaryCore.accuracy || 0) * 0.5, 0, 1)),
+                forwardReadiness: roundMetric(clampNumber((summaryCore.accuracy || 0) * 0.5, 0, 1)),
+                modeTransitionReadiness: roundMetric(clampNumber((summaryCore.accuracy || 0) * 0.5, 0, 1))
+            };
+        }
+
+        let spanOscillationCount = 0;
+        let reversalCount = 0;
+        let totalAbsDelta = 0;
+        let meaningfulTransitions = 0;
+        let previousDirection = 0;
+
+        for (let i = 1; i < spanTrace.length; i++) {
+            const previousSpan = spanTrace[i - 1].span;
+            const currentSpan = spanTrace[i].span;
+            const delta = currentSpan - previousSpan;
+
+            totalAbsDelta += Math.abs(delta);
+
+            if (delta === 0) continue;
+
+            meaningfulTransitions++;
+            const direction = Math.sign(delta);
+
+            if (previousDirection !== 0 && direction !== previousDirection) {
+                spanOscillationCount++;
+                if (i >= 2 && currentSpan === spanTrace[i - 2].span) {
+                    reversalCount++;
+                }
+            }
+
+            previousDirection = direction;
+        }
+
+        const transitionCount = Math.max(1, spanTrace.length - 1);
+        const meanAbsDelta = totalAbsDelta / transitionCount;
+        const spanRange = Math.max(1, MAX_SPAN - MIN_SPAN);
+        const directionChangeRate = spanOscillationCount / Math.max(1, meaningfulTransitions - 1);
+        const reversalRate = reversalCount / Math.max(1, meaningfulTransitions - 1);
+        const adaptationVolatility = roundMetric(clampNumber(
+            (meanAbsDelta / spanRange) * 0.5 +
+            directionChangeRate * 0.3 +
+            reversalRate * 0.2,
+            0,
+            1
+        ));
+        const spanStability = roundMetric(clampNumber(1 - adaptationVolatility, 0, 1));
+        const staircaseQuality = roundMetric(clampNumber(
+            (spanStability * 0.7) + (clampNumber(summaryCore.accuracy || 0, 0, 1) * 0.3),
+            0,
+            1
+        ));
+        const adaptiveStabilityLabel = spanStability >= 0.82 && spanOscillationCount === 0
+            ? 'stable'
+            : spanStability >= 0.65 && reversalCount <= 1
+                ? 'steady'
+                : spanStability >= 0.45
+                    ? 'mixed'
+                    : 'volatile';
+        const orderPenalty = clampNumber(
+            ((summaryCore.orderErrorCount || 0) * 0.1) +
+            ((summaryCore.timeoutCount || 0) * 0.12),
+            0,
+            0.6
+        );
+        const spanFactor = clampNumber((summaryCore.finalSpan || 0) / Math.max(1, MAX_SPAN), 0, 1);
+        const baseReadiness = clampNumber(
+            (clampNumber(summaryCore.accuracy || 0, 0, 1) * 0.35) +
+            (spanStability * 0.25) +
+            (staircaseQuality * 0.2) +
+            (spanFactor * 0.2) -
+            orderPenalty,
+            0,
+            1
+        );
+        const backwardReadiness = roundMetric(clampNumber(
+            baseReadiness + (summaryCore.sequenceMode === 'forward' ? 0.08 : 0) + (summaryCore.finalSpan >= 6 ? 0.05 : 0),
+            0,
+            1
+        ));
+        const forwardReadiness = roundMetric(clampNumber(
+            baseReadiness + (summaryCore.sequenceMode === 'backward' ? 0.08 : 0) + (summaryCore.finalSpan <= 4 ? 0.05 : 0),
+            0,
+            1
+        ));
+        const modeTransitionReadiness = summaryCore.sequenceMode === 'forward'
+            ? backwardReadiness
+            : forwardReadiness;
+
+        return {
+            spanOscillationCount,
+            reversalCount,
+            adaptationVolatility,
+            spanStability,
+            staircaseQuality,
+            adaptiveStabilityLabel,
+            backwardReadiness,
+            forwardReadiness,
+            modeTransitionReadiness
+        };
+    }
+
     function classifyClickError(clickedIndex) {
         return sequence.includes(clickedIndex) ? 'order_error' : 'wrong_block';
     }
@@ -625,25 +748,52 @@ document.addEventListener('DOMContentLoaded', () => {
                 nextStartSpan: currentStart,
                 nextMode: summary.sequenceMode,
                 nextBlockCount: currentBlockCount,
-                nextPrescriptionReason: '本轮手动停止或样本不足，下一轮先复用当前设置完成可计入序列。'
+                nextPrescriptionReason: `本轮手动停止或样本不足，下一轮先复用当前设置完成可计入序列；阶梯稳定性=${summary.adaptiveStabilityLabel}，波动=${summary.adaptationVolatility}。`
             };
         }
 
-        if (summary.accuracy >= 0.8 && summary.sequenceMode === 'forward' && summary.finalSpan >= 6) {
+        if (
+            summary.sequenceMode === 'forward' &&
+            summary.modeTransitionReadiness >= STABILITY_SWITCH_THRESHOLD &&
+            summary.backwardReadiness >= STABILITY_SWITCH_THRESHOLD &&
+            summary.finalSpan >= 6
+        ) {
             return {
                 nextStartSpan: currentStart,
                 nextMode: 'backward',
                 nextBlockCount: currentBlockCount,
-                nextPrescriptionReason: '正向广度和正确率已稳定，下一轮切换逆向回忆增加顺序操作负荷。'
+                nextPrescriptionReason: `正向广度和阶梯稳定性已达可切换水平（${summary.adaptiveStabilityLabel}，波动 ${summary.adaptationVolatility}，逆向准备度 ${summary.backwardReadiness}），下一轮切换逆向回忆增加顺序操作负荷。`
             };
         }
 
-        if (summary.accuracy >= 0.75) {
+        if (
+            summary.sequenceMode === 'backward' &&
+            summary.modeTransitionReadiness >= STABILITY_SWITCH_THRESHOLD &&
+            summary.forwardReadiness >= STABILITY_SWITCH_THRESHOLD
+        ) {
+            return {
+                nextStartSpan: currentStart,
+                nextMode: 'forward',
+                nextBlockCount: currentBlockCount,
+                nextPrescriptionReason: `逆向回忆的阶梯稳定性已达可切回正向水平（${summary.adaptiveStabilityLabel}，波动 ${summary.adaptationVolatility}，正向准备度 ${summary.forwardReadiness}），下一轮切回正向巩固路径编码。`
+            };
+        }
+
+        if (summary.accuracy >= 0.75 && summary.staircaseQuality >= STABILITY_ADVANCE_THRESHOLD) {
             return {
                 nextStartSpan: clampNumber(baseStart + 1, 2, 5),
                 nextMode: summary.sequenceMode,
                 nextBlockCount: currentBlockCount,
-                nextPrescriptionReason: '正确率达标，下一轮小幅提高起始长度并保持模式与方块数量。'
+                nextPrescriptionReason: `正确率和阶梯质量都已达标（${summary.staircaseQuality}，稳定性 ${summary.spanStability}），下一轮小幅提高起始长度并保持模式与方块数量。`
+            };
+        }
+
+        if (summary.accuracy >= 0.75 && summary.staircaseQuality < STABILITY_ADVANCE_THRESHOLD) {
+            return {
+                nextStartSpan: currentStart,
+                nextMode: summary.sequenceMode,
+                nextBlockCount: currentBlockCount,
+                nextPrescriptionReason: `正确率虽然达标，但阶梯稳定性仍偏弱（${summary.adaptiveStabilityLabel}，震荡 ${summary.spanOscillationCount} 次，反转 ${summary.reversalCount} 次），下一轮先保持设置巩固 span 变化。`
             };
         }
 
@@ -653,7 +803,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 nextStartSpan: nextStart,
                 nextMode: 'forward',
                 nextBlockCount: currentBlockCount,
-                nextPrescriptionReason: '顺序错误多于正确序列，下一轮优先用正向模式稳定点击顺序。'
+                nextPrescriptionReason: `顺序错误多于正确序列，且当前阶梯稳定性=${summary.adaptiveStabilityLabel}，下一轮优先用正向模式稳定点击顺序。`
             };
         }
 
@@ -662,7 +812,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 nextStartSpan: clampNumber(baseStart - 1, 2, 5),
                 nextMode: summary.sequenceMode === 'backward' ? 'forward' : summary.sequenceMode,
                 nextBlockCount: currentBlockCount,
-                nextPrescriptionReason: '正确率偏低且最终广度未超过起始长度，下一轮降低起始长度以恢复稳定完成率。'
+                nextPrescriptionReason: `正确率偏低且最终广度未超过起始长度，阶梯稳定性=${summary.adaptiveStabilityLabel}，下一轮降低起始长度以恢复稳定完成率。`
             };
         }
 
@@ -670,7 +820,7 @@ document.addEventListener('DOMContentLoaded', () => {
             nextStartSpan: currentStart,
             nextMode: summary.sequenceMode,
             nextBlockCount: currentBlockCount,
-            nextPrescriptionReason: '当前负荷基本合适，下一轮保持设置并继续巩固空间路径和点击顺序。'
+            nextPrescriptionReason: `当前负荷基本合适，但阶梯稳定性=${summary.adaptiveStabilityLabel}、波动=${summary.adaptationVolatility}、模式切换准备度=${summary.modeTransitionReadiness}，下一轮保持设置并继续巩固空间路径和点击顺序。`
         };
     }
 
@@ -701,8 +851,7 @@ document.addEventListener('DOMContentLoaded', () => {
             errorType: trial.errorType,
             adaptationEventIndex: trial.adaptationEventIndex ?? null
         }));
-
-        const summary = {
+        const summaryCore = {
             totalTrials,
             correctCount,
             accuracy,
@@ -745,6 +894,12 @@ document.addEventListener('DOMContentLoaded', () => {
             blockLayoutSeedHistory: blockLayoutSeedHistory.map(event => ({ ...event })),
             contentVersion: CONTENT_VERSION,
             blockLayout: cloneBlockLayout()
+        };
+        const staircaseMetrics = analyzeSpanStability(summaryCore);
+
+        const summary = {
+            ...summaryCore,
+            ...staircaseMetrics
         };
 
         return {
@@ -799,6 +954,15 @@ document.addEventListener('DOMContentLoaded', () => {
                 adaptationEventCount: summary.adaptationEvents.length,
                 adaptationEvents: summary.adaptationEvents,
                 spanProgression: summary.spanProgression,
+                spanOscillationCount: summary.spanOscillationCount,
+                reversalCount: summary.reversalCount,
+                adaptationVolatility: summary.adaptationVolatility,
+                spanStability: summary.spanStability,
+                staircaseQuality: summary.staircaseQuality,
+                adaptiveStabilityLabel: summary.adaptiveStabilityLabel,
+                backwardReadiness: summary.backwardReadiness,
+                forwardReadiness: summary.forwardReadiness,
+                modeTransitionReadiness: summary.modeTransitionReadiness,
                 startingMode: summary.startingMode,
                 finalMode: summary.finalMode,
                 modeChanges: summary.modeChanges,
@@ -1024,6 +1188,8 @@ document.addEventListener('DOMContentLoaded', () => {
             <p><strong>${getRatingText(summary.finalSpan)}</strong></p>
             <p>空间记忆广度：${modeText}条件下，最终广度为 ${summary.finalSpan}，最长正确序列为 ${summary.longestCorrectSequence}，正确率 ${accuracyText}。</p>
             <p>自适应轨迹：${adaptiveText}</p>
+            <p>阶梯稳定性：${summary.adaptiveStabilityLabel}，span 稳定度 ${Math.round(summary.spanStability * 100)}%，震荡 ${summary.spanOscillationCount} 次，反转 ${summary.reversalCount} 次，波动 ${Math.round(summary.adaptationVolatility * 100)}%。</p>
+            <p>模式准备度：逆向 ${Math.round(summary.backwardReadiness * 100)}%，正向 ${Math.round(summary.forwardReadiness * 100)}%，切换准备度 ${Math.round(summary.modeTransitionReadiness * 100)}%。</p>
             <p>错误类型：${formatErrorProfile(summary)}。</p>
             <p>顺序/长度负荷：${orderText}本轮最高尝试长度为 ${summary.maxAttemptedSpan}，长度增加会同时提高空间位置保持和顺序复现负荷。</p>
             <p>下一轮建议：${getNextRoundAdvice(summary)}</p>
