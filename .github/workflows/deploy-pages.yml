@@ -33,10 +33,60 @@ jobs:
       - name: Setup Pages
         uses: actions/configure-pages@v5
 
+      - name: Build Pages artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          artifact_dir="dist-pages"
+          rm -rf "$artifact_dir"
+          mkdir -p "$artifact_dir"
+
+          while IFS= read -r -d '' file; do
+            cp "$file" "$artifact_dir/"
+          done < <(find . -maxdepth 1 -type f \( -name "*.html" -o -name "*.css" \) -print0)
+
+          grep -hEo '<script[^>]+src="[^"]+\.js"' ./*.html \
+            | sed -E 's/.*src="([^"]+)".*/\1/' \
+            | sort -u \
+            | while IFS= read -r script_file; do
+                script_file="${script_file#./}"
+                case "$script_file" in
+                  http://*|https://*|//*|*/*)
+                    continue
+                    ;;
+                esac
+
+                if [ ! -f "$script_file" ]; then
+                  echo "Missing root script referenced by HTML: $script_file" >&2
+                  exit 1
+                fi
+                cp "$script_file" "$artifact_dir/"
+              done
+
+          cp .nojekyll "$artifact_dir/.nojekyll"
+          cp -R src "$artifact_dir/src"
+          cp -R doc "$artifact_dir/doc"
+
+          disallowed_path="$(find "$artifact_dir" \( \
+            \( -type d \( -name ".git" -o -name ".github" -o -name "node_modules" -o -name "scripts" -o -name "dist" \) \) -o \
+            \( -type f \( \
+              -name "package.json" -o -name "package-lock.json" -o -name "npm-shrinkwrap.json" -o \
+              -name "yarn.lock" -o -name "pnpm-lock.yaml" -o \
+              -name ".npmrc" -o -name ".yarnrc" -o -name ".yarnrc.yml" -o -name ".pnpmrc" -o \
+              -name ".env" -o \( -name ".env.*" ! -name ".env.example" \) \
+            \) \) \
+          \) -print -quit)"
+
+          if [ -n "$disallowed_path" ]; then
+            echo "Unexpected file in Pages artifact: $disallowed_path" >&2
+            exit 1
+          fi
+
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: .
+          path: dist-pages
 
   deploy:
     needs: build

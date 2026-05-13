@@ -3,6 +3,7 @@ const path = require("path");
 
 const ROOT = path.resolve(__dirname, "..");
 const TRAINING_RESULTS = "src/shared/training-results.js";
+const ATTENTION_PROFILE = "src/shared/attention-profile.js";
 const SEEDED_RANDOM = "src/shared/seeded-random.js";
 
 function escapeRegExp(value) {
@@ -406,7 +407,7 @@ const FLOWS = [
         name: "Report",
         html: "report.html",
         js: "report.js",
-        sharedScripts: [TRAINING_RESULTS],
+        sharedScripts: [TRAINING_RESULTS, ATTENTION_PROFILE],
         domIds: [
             "selected-date-text",
             "date-picker",
@@ -417,7 +418,10 @@ const FLOWS = [
             "total-duration",
             "avg-duration",
             "sessions-body",
-            "empty-hint"
+            "empty-hint",
+            "attention-system-summary",
+            "attention-profile-chips",
+            "attention-prescription-list"
         ],
         jsChecks: [
             { label: "DOMContentLoaded boot", pattern: /addEventListener\s*\(\s*["']DOMContentLoaded["']\s*,\s*init\s*\)/ },
@@ -427,7 +431,12 @@ const FLOWS = [
             { label: "module metric groups", pattern: /MODULE_METRIC_KEY_GROUPS/ },
             { label: "metrics rendering", pattern: /metricsText/ },
             { label: "seed display support", pattern: jsWord("seed") },
-            { label: "content version display support", pattern: jsWord("contentVersion") }
+            { label: "content version display support", pattern: jsWord("contentVersion") },
+            { label: "AttentionProfile read access", pattern: /AttentionProfile/ },
+            { label: "attention session aggregation", pattern: /aggregateAttentionSessions/ },
+            { label: "attention summary binding", pattern: /attention-system-summary/ },
+            { label: "attention chips binding", pattern: /attention-profile-chips/ },
+            { label: "attention prescription binding", pattern: /attention-prescription-list/ }
         ]
     },
     {

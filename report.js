@@ -1255,6 +1255,89 @@ function renderWeaknesses(weakGroups) {
     setListItems("weakness-list", items, "最近记录没有明显弱项；下一轮可按当前节奏巩固，并继续观察错误类型。");
 }
 
+function renderAttentionSystemFeedback(recentSessions) {
+    const summary = document.getElementById("attention-system-summary");
+    const chips = document.getElementById("attention-profile-chips");
+    const prescriptions = document.getElementById("attention-prescription-list");
+    if (!summary || !chips || !prescriptions) {
+        return;
+    }
+
+    function renderPrescriptionItems(items, emptyText) {
+        prescriptions.innerHTML = "";
+        const displayItems = items.length > 0 ? items : [emptyText];
+        displayItems.forEach((text) => {
+            const item = document.createElement("li");
+            item.textContent = text;
+            if (items.length === 0) {
+                item.className = "feedback-empty";
+            }
+            prescriptions.appendChild(item);
+        });
+    }
+
+    function renderEmpty(summaryText, prescriptionText) {
+        summary.className = "feedback-empty";
+        summary.textContent = summaryText;
+        chips.innerHTML = "";
+        const empty = document.createElement("span");
+        empty.className = "feedback-empty";
+        empty.textContent = "暂无注意力画像标签。";
+        chips.appendChild(empty);
+        renderPrescriptionItems([], prescriptionText);
+    }
+
+    const api = window.AttentionProfile;
+    if (!api || typeof api.aggregateAttentionSessions !== "function") {
+        renderEmpty("注意力系统画像暂不可用。", "注意力画像 helper 加载后再生成训练处方。");
+        return;
+    }
+
+    let aggregate = null;
+    try {
+        aggregate = api.aggregateAttentionSessions(recentSessions);
+    } catch (error) {
+        console.warn("Failed to render attention system feedback:", error);
+        renderEmpty("注意力系统画像生成失败。", "记录恢复后再生成注意力训练处方。");
+        return;
+    }
+
+    if (!aggregate || !aggregate.hasAttentionRecords) {
+        renderEmpty(
+            "最近记录里暂无注意力模块。完成 Schulte、Flanker、Stroop、Focus、CPT、Go/No-Go 或 Stop Signal 后，这里会生成画像。",
+            "暂无注意力训练处方。"
+        );
+        return;
+    }
+
+    summary.className = "";
+    summary.textContent = aggregate.summaryText || "已生成注意力系统画像。";
+    chips.innerHTML = "";
+    let chipItems = Array.isArray(aggregate.chips) ? aggregate.chips : [];
+    if (chipItems.length === 0 && Array.isArray(aggregate.profiles) && typeof api.attentionSummaryChipText === "function") {
+        chipItems = aggregate.profiles.map((profile) => ({
+            label: api.attentionSummaryChipText(profile),
+            title: `${profile.errorProfile || ""}；${profile.loadLevel || ""}；${profile.nextRecommendation || ""}`
+        }));
+    }
+
+    if (chipItems.length === 0) {
+        const empty = document.createElement("span");
+        empty.className = "feedback-empty";
+        empty.textContent = "暂无注意力画像标签。";
+        chips.appendChild(empty);
+    }
+
+    chipItems.slice(0, 7).forEach((chipData) => {
+        const chip = document.createElement("span");
+        chip.className = "domain-chip";
+        chip.textContent = typeof chipData === "string" ? chipData : chipData.label;
+        chip.title = typeof chipData === "string" ? chipData : chipData.title || chipData.label;
+        chips.appendChild(chip);
+    });
+    renderPrescriptionItems(Array.isArray(aggregate.prescriptions) ? aggregate.prescriptions : [], "暂无注意力训练处方。");
+}
+
 function renderTrainingFeedback(dateKey) {
     const result = safeAllSessions(dateKey);
     const allSessions = result.sessions;
@@ -1276,6 +1359,7 @@ function renderTrainingFeedback(dateKey) {
         setListItems("weakness-list", [], "暂无可用记录。");
         setListItems("next-round-list", [], "记录恢复后再生成下一轮建议。");
         setListItems("recent-hints-list", [], "暂无可用记录。");
+        renderAttentionSystemFeedback([]);
         return;
     }
 
@@ -1283,6 +1367,7 @@ function renderTrainingFeedback(dateKey) {
     renderDomainSummary(domains);
     renderWeaknesses(weakGroups);
     setListItems("next-round-list", buildNextRoundSuggestions(weakGroups, domains, recentSessions), "暂无下一轮建议。");
+    renderAttentionSystemFeedback(recentSessions);
     setListItems(
         "recent-hints-list",
         allSessions.slice(0, RECENT_HINT_LIMIT).map(recentHintText),

@@ -1,80 +1,12 @@
 const fs = require("fs");
 const path = require("path");
+const vm = require("vm");
 
 const ROOT = path.resolve(__dirname, "..");
+const HOME_CONFIG = "src/home/config.js";
+const EXTRA_PAGES = ["index.html", "health-check.html"];
 
-const PAGES = [
-    {
-        file: "stop-signal.html",
-        requiredScripts: ["src/shared/training-results.js", "src/shared/seeded-random.js", "stop-signal.js"]
-    },
-    {
-        file: "go-no-go.html",
-        requiredScripts: ["src/shared/training-results.js", "src/shared/seeded-random.js", "go-no-go.js"]
-    },
-    {
-        file: "schulte.html",
-        requiredScripts: ["src/shared/training-results.js", "src/shared/seeded-random.js", "schulte.js"]
-    },
-    {
-        file: "balloon-risk.html",
-        requiredScripts: ["src/shared/training-results.js", "src/shared/seeded-random.js", "balloon-risk.js"]
-    },
-    {
-        file: "nback.html",
-        requiredScripts: ["src/shared/training-results.js", "src/shared/seeded-random.js", "nback.js"]
-    },
-    {
-        file: "corsi.html",
-        requiredScripts: ["src/shared/training-results.js", "src/shared/seeded-random.js", "corsi.js"]
-    },
-    {
-        file: "task-switching.html",
-        requiredScripts: ["src/shared/training-results.js", "src/shared/seeded-random.js", "task-switching.js"]
-    },
-    {
-        file: "digit-span.html",
-        requiredScripts: ["src/shared/training-results.js", "src/shared/seeded-random.js", "digit-span.js"]
-    },
-    {
-        file: "mental-rotation.html",
-        requiredScripts: ["src/shared/training-results.js", "src/shared/seeded-random.js", "mental-rotation.js"]
-    },
-    {
-        file: "raven.html",
-        requiredScripts: ["src/shared/training-results.js", "src/shared/seeded-random.js", "raven.js"]
-    },
-    {
-        file: "wisconsin-card.html",
-        requiredScripts: ["src/shared/training-results.js", "src/shared/seeded-random.js", "wisconsin-card.js"]
-    },
-    {
-        file: "reversal-learning.html",
-        requiredScripts: ["src/shared/training-results.js", "src/shared/seeded-random.js", "reversal-learning.js"]
-    },
-    {
-        file: "iowa-gambling.html",
-        requiredScripts: ["src/shared/training-results.js", "src/shared/seeded-random.js", "iowa-gambling.js"]
-    },
-    {
-        file: "hanoi.html",
-        requiredScripts: ["src/shared/training-results.js", "hanoi.js"]
-    },
-    {
-        file: "daily-plan.html",
-        requiredScripts: ["src/shared/training-results.js", "daily-plan.js"]
-    },
-    {
-        file: "report.html",
-        requiredScripts: ["src/shared/training-results.js", "report.js"]
-    },
-    {
-        file: "index.html",
-        requiredScripts: ["src/home/index.js"]
-    }
-];
-
-function cleanLocalRef(ref) {
+function cleanLocalRef(ref, baseDir = "") {
     const value = (ref || "").trim();
     if (!value) return null;
     if (/^(?:[a-z]+:)?\/\//i.test(value)) return null;
@@ -85,22 +17,95 @@ function cleanLocalRef(ref) {
     const withoutQuery = withoutHash.split("?")[0];
     if (!withoutQuery) return null;
 
-    const normalized = path.normalize(withoutQuery.replace(/^\/+/, ""));
-    if (normalized.startsWith("..") || path.isAbsolute(normalized)) {
+    const posixRef = withoutQuery.replace(/\\/g, "/");
+    if (/^[a-z]:\//i.test(posixRef)) return null;
+
+    const normalized = path.posix.normalize(
+        posixRef.startsWith("/")
+            ? posixRef.replace(/^\/+/, "")
+            : path.posix.join(baseDir, posixRef)
+    );
+    const isInvalidPath =
+        normalized === "." ||
+        normalized.startsWith("../") ||
+        normalized === ".." ||
+        path.isAbsolute(normalized);
+    if (isInvalidPath) {
         return null;
     }
-    return normalized.replace(/\\/g, "/");
+    return normalized;
 }
 
-function extractRefs(html, tagName, attrName) {
+function extractRefs(html, tagName, attrName, baseDir) {
     const refs = [];
     const regex = new RegExp(`<${tagName}\\b[^>]*\\b${attrName}\\s*=\\s*["']([^"']+)["'][^>]*>`, "gi");
     let match;
     while ((match = regex.exec(html))) {
-        const cleaned = cleanLocalRef(match[1]);
+        const cleaned = cleanLocalRef(match[1], baseDir);
         if (cleaned) refs.push(cleaned);
     }
     return refs;
+}
+
+function loadSections() {
+    const configPath = path.join(ROOT, HOME_CONFIG);
+    const source = fs.readFileSync(configPath, "utf8");
+    const runnableSource = source.replace(/^\s*export\s+const\s+sections\s*=/m, "const sections =");
+
+    if (runnableSource === source) {
+        throw new Error(`Unable to find sections export in ${HOME_CONFIG}`);
+    }
+
+    const sections = vm.runInNewContext(`${runnableSource}\nsections;`, Object.create(null), {
+        filename: HOME_CONFIG,
+        timeout: 1000
+    });
+
+    if (!Array.isArray(sections)) {
+        throw new Error(`${HOME_CONFIG} did not export a sections array`);
+    }
+
+    return sections;
+}
+
+function collectActivePages(sections) {
+    const pages = [];
+
+    for (const section of sections) {
+        const tasks = section && Array.isArray(section.tasks) ? section.tasks : [];
+        for (const task of tasks) {
+            if (!task || task.status !== "active") continue;
+
+            const page = cleanLocalRef(task.href);
+            if (!page) {
+                throw new Error(`Active task has an invalid local href: ${task.href || "<empty>"}`);
+            }
+            pages.push(page);
+        }
+    }
+
+    if (pages.length === 0) {
+        throw new Error(`No active page hrefs found in ${HOME_CONFIG}`);
+    }
+
+    return pages;
+}
+
+function uniquePages(pages) {
+    const seen = new Set();
+    const unique = [];
+
+    for (const page of pages) {
+        if (seen.has(page)) continue;
+        seen.add(page);
+        unique.push(page);
+    }
+
+    return unique;
+}
+
+function buildPageList() {
+    return uniquePages([...collectActivePages(loadSections()), ...EXTRA_PAGES]);
 }
 
 function fileExists(relativePath) {
@@ -114,18 +119,21 @@ function fileExists(relativePath) {
 
 function checkPage(page) {
     const issues = [];
-    const pagePath = path.join(ROOT, page.file);
+    const pagePath = path.join(ROOT, page);
+    const pageDir = path.posix.dirname(page) === "." ? "" : path.posix.dirname(page);
     let html = "";
 
     try {
         html = fs.readFileSync(pagePath, "utf8");
     } catch (error) {
         issues.push(`HTML not readable: ${error.message}`);
-        return { page: page.file, issues, checkedAssets: 0 };
+        return { page, issues, checkedAssets: 0 };
     }
 
-    const scripts = extractRefs(html, "script", "src");
-    const cssRefs = extractRefs(html, "link", "href").filter((ref) => path.extname(ref).toLowerCase() === ".css");
+    const scripts = extractRefs(html, "script", "src", pageDir);
+    const cssRefs = extractRefs(html, "link", "href", pageDir).filter(
+        (ref) => path.extname(ref).toLowerCase() === ".css"
+    );
     const assets = [...new Set([...scripts, ...cssRefs])];
 
     for (const asset of assets) {
@@ -134,18 +142,21 @@ function checkPage(page) {
         }
     }
 
-    for (const requiredScript of page.requiredScripts) {
-        const normalized = cleanLocalRef(requiredScript);
-        if (!normalized || !scripts.includes(normalized)) {
-            issues.push(`Missing required script reference: ${requiredScript}`);
-        }
-    }
-
-    return { page: page.file, issues, checkedAssets: assets.length };
+    return { page, issues, checkedAssets: assets.length };
 }
 
 function main() {
-    const results = PAGES.map(checkPage);
+    let pages;
+    try {
+        pages = buildPageList();
+    } catch (error) {
+        console.log(`[FAIL] ${HOME_CONFIG}`);
+        console.log(`  - ${error.message}`);
+        process.exitCode = 1;
+        return;
+    }
+
+    const results = pages.map(checkPage);
     let failed = 0;
 
     for (const result of results) {

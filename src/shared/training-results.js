@@ -1,6 +1,7 @@
 (function initTrainingResults(global) {
     const STORAGE_KEY = "cognitive-training:sessions";
     const SCHEMA_VERSION = "training-result-v1";
+    const MAX_STORED_SESSIONS = 300;
     const MAX_TRIALS_PER_SESSION = 500;
 
     function safeParse(value, fallback) {
@@ -11,14 +12,44 @@
         }
     }
 
+    function getStorage() {
+        try {
+            return global.localStorage || null;
+        } catch (_error) {
+            return null;
+        }
+    }
+
     function loadSessions() {
-        const raw = localStorage.getItem(STORAGE_KEY);
+        const storage = getStorage();
+        if (!storage) {
+            return [];
+        }
+
+        let raw = null;
+        try {
+            raw = storage.getItem(STORAGE_KEY);
+        } catch (_error) {
+            return [];
+        }
+
         const data = raw ? safeParse(raw, []) : [];
         return Array.isArray(data) ? data : [];
     }
 
     function saveSessions(list) {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(list));
+        const storage = getStorage();
+        if (!storage) {
+            return false;
+        }
+
+        const sessions = Array.isArray(list) ? list.slice(0, MAX_STORED_SESSIONS) : [];
+        try {
+            storage.setItem(STORAGE_KEY, JSON.stringify(sessions));
+            return true;
+        } catch (_error) {
+            return false;
+        }
     }
 
     function toDateKey(value) {
@@ -141,7 +172,16 @@
     }
 
     function clearAllSessions() {
-        localStorage.removeItem(STORAGE_KEY);
+        const storage = getStorage();
+        if (!storage) {
+            return;
+        }
+
+        try {
+            storage.removeItem(STORAGE_KEY);
+        } catch (_error) {
+            // Storage may be disabled or unavailable in restricted browser contexts.
+        }
     }
 
     global.TrainingResults = {

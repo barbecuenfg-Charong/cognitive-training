@@ -1,4 +1,28 @@
 node_modules/
 dist/
+dist-pages/
 .DS_Store
 Thumbs.db
+
+# Local environment and package registry credentials.
+.env*
+!.env.example
+.npmrc
+.yarnrc
+.yarnrc.yml
+.pnpmrc
+
+# Private keys and certificates.
+*.pem
+*.key
+*.p8
+*.crt
+*.cer
+*.p12
+*.pfx
+*.jks
+*.keystore
+id_rsa*
+id_dsa*
+id_ecdsa*
+id_ed25519*

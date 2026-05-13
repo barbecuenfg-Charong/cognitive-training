@@ -184,6 +184,17 @@
             padding: 6px 10px;
         }
 
+        .attention-profile-chips {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin: 10px 0 8px;
+        }
+
+        .attention-prescription-list {
+            margin-top: 8px;
+        }
+
         .feedback-empty {
             color: #7f8c8d;
         }
@@ -247,6 +258,12 @@
                         <h3 id="feedback-trend-title">最近训练趋势</h3>
                         <p id="feedback-trend" class="feedback-empty">暂无可用训练记录。</p>
                     </section>
+                    <section class="feedback-panel wide" aria-labelledby="attention-system-title">
+                        <h3 id="attention-system-title">注意力系统画像</h3>
+                        <p id="attention-system-summary" class="feedback-empty">暂无注意力系统记录。</p>
+                        <div id="attention-profile-chips" class="attention-profile-chips"></div>
+                        <ul id="attention-prescription-list" class="feedback-list attention-prescription-list"></ul>
+                    </section>
                     <section class="feedback-panel" aria-labelledby="feedback-domains-title">
                         <h3 id="feedback-domains-title">能力域概览</h3>
                         <div id="domain-summary" class="domain-summary"></div>
@@ -290,6 +307,7 @@
     </div>
 
     <script src="src/shared/training-results.js"></script>
+    <script src="src/shared/attention-profile.js"></script>
     <script src="report.js"></script>
 </body>
 </html>

@@ -3,40 +3,83 @@ const path = require("path");
 
 const ROOT = path.resolve(__dirname, "..");
 const TEXT_EXT = new Set([
+    ".bat",
+    ".cmd",
+    ".conf",
+    ".config",
+    ".css",
+    ".csv",
     ".md",
     ".html",
+    ".ini",
     ".js",
+    ".jsx",
     ".json",
-    ".css",
-    ".yml",
-    ".yaml",
-    ".txt",
+    ".key",
+    ".pem",
+    ".properties",
+    ".ps1",
+    ".sh",
+    ".toml",
     ".ts",
     ".tsx",
-    ".jsx",
-    ".cmd"
+    ".txt",
+    ".xml",
+    ".yml",
+    ".yaml"
 ]);
+const TEXT_FILE_NAMES = new Set([".env", ".envrc"]);
+const SKIP_DIRS = new Set([".git", "node_modules"]);
 
-const SENSITIVE_PATTERNS = [
-    /C:\\Users\\Administrator/gi,
-    /[A-Za-z]:\\Users\\/gi,
-    /\/Users\//gi,
-    /(^|[^A-Za-z0-9_])[A-Za-z]:\\[^`"'<>|]+/gi,
-    new RegExp("barbecue" + "nfg", "gi"),
-    new RegExp("barbecue" + "nfg-charong\\.github\\.io", "gi")
+const SENSITIVE_RULES = [
+    { name: "windows-administrator-profile", pattern: /C:\\Users\\Administrator/i },
+    { name: "windows-user-profile", pattern: /[A-Za-z]:\\Users\\/i },
+    { name: "macos-user-profile", pattern: /\/Users\//i },
+    { name: "absolute-windows-path", pattern: /(^|[^A-Za-z0-9_])[A-Za-z]:\\[^`"'<>|]+/i },
+    { name: "personal-github-handle", pattern: new RegExp("barbecue" + "nfg", "i") },
+    { name: "personal-github-pages", pattern: new RegExp("barbecue" + "nfg-charong\\.github\\.io", "i") },
+    { name: "private-key-block", pattern: /-----BEGIN (?:[A-Z]+ )?PRIVATE KEY-----/i },
+    { name: "openai-api-key", pattern: /\bsk-[A-Za-z0-9_-]{20,}\b/ },
+    { name: "github-token", pattern: /\bgh[pousr]_[A-Za-z0-9_]{30,}\b/ },
+    { name: "google-api-key", pattern: /\bAIza[0-9A-Za-z_-]{35}\b/ },
+    { name: "aws-access-key", pattern: /\b(?:AKIA|ASIA)[0-9A-Z]{16}\b/ },
+    { name: "slack-token", pattern: /\bxox[baprs]-[A-Za-z0-9-]{20,}\b/ },
+    { name: "jwt-token", pattern: /\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b/ },
+    { name: "authorization-bearer", pattern: /\bBearer\s+[A-Za-z0-9._+/=-]{20,}\b/i },
+    { name: "url-embedded-credentials", pattern: /\bhttps?:\/\/[^/\s:@]+:[^@\s]+@/i },
+    { name: "static-token-assignment", pattern: /\b(?:token|session[_-]?token)\b\s*[:=]\s*["'][A-Za-z0-9._+/=-]{20,}["']/i },
+    {
+        name: "sensitive-assignment",
+        pattern:
+            /\b(?:api[_-]?key|auth[_-]?token|access[_-]?token|refresh[_-]?token|secret[_-]?key|client[_-]?secret|password|passwd|pwd|private[_-]?key)\b\s*[:=]\s*["']?(?!<redacted>|redacted|example|sample|dummy|placeholder|changeme|your[-_ ]?)[^"'\s#,;]{8,}/i
+    },
+    {
+        name: "environment-secret-assignment",
+        pattern:
+            /^\s*[A-Z][A-Z0-9_]*(?:API_KEY|TOKEN|SECRET|PASSWORD|PASSWD|PWD|PRIVATE_KEY)\s*=\s*(?!<redacted>|redacted|example|sample|dummy|placeholder|changeme|your[-_ ]?).{8,}/i
+    }
 ];
+
+function isTextFile(filePath) {
+    const baseName = path.basename(filePath);
+    if (TEXT_FILE_NAMES.has(baseName)) return true;
+    if (baseName.startsWith(".env.")) return true;
+    return TEXT_EXT.has(path.extname(baseName).toLowerCase());
+}
 
 function walk(dir, out = []) {
     const entries = fs.readdirSync(dir, { withFileTypes: true });
+    entries.sort((a, b) => a.name.localeCompare(b.name));
+
     for (const entry of entries) {
         const fullPath = path.join(dir, entry.name);
         if (entry.isDirectory()) {
-            if (entry.name === ".git" || entry.name === "node_modules") continue;
+            if (SKIP_DIRS.has(entry.name)) continue;
             walk(fullPath, out);
             continue;
         }
-        const ext = path.extname(entry.name).toLowerCase();
-        if (!TEXT_EXT.has(ext)) continue;
+
+        if (!isTextFile(fullPath)) continue;
         if (path.basename(fullPath) === "check-sensitive-paths.js") continue;
         out.push(fullPath);
     }
@@ -49,11 +92,10 @@ function scanFile(filePath) {
     const hits = [];
     for (let i = 0; i < lines.length; i += 1) {
         const line = lines[i];
-        if (SENSITIVE_PATTERNS.some((p) => p.test(line))) {
-            hits.push({ line: i + 1, text: line.trim() });
-        }
-        for (const pattern of SENSITIVE_PATTERNS) {
-            pattern.lastIndex = 0;
+        for (const rule of SENSITIVE_RULES) {
+            if (rule.pattern.test(line)) {
+                hits.push({ line: i + 1, rule: rule.name });
+            }
         }
     }
     return hits;
@@ -69,19 +111,19 @@ function main() {
             findings.push({
                 file: path.relative(ROOT, file).replace(/\\/g, "/"),
                 line: match.line,
-                text: match.text
+                rule: match.rule
             });
         }
     }
 
     if (findings.length === 0) {
-        console.log("No sensitive local path patterns found.");
+        console.log("No sensitive path or credential patterns found.");
         return;
     }
 
-    console.log(`Found ${findings.length} potential sensitive lines:`);
+    console.log(`Found ${findings.length} potential sensitive match(es):`);
     for (const item of findings) {
-        console.log(`${item.file}:${item.line}: ${item.text}`);
+        console.log(`${item.file}:${item.line}: ${item.rule}`);
     }
     process.exit(1);
 }

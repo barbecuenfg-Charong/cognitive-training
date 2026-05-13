@@ -78,6 +78,14 @@
    训练项目本体完备性全面迭代计划：成熟度标准、剩余模块优先级、多 agent 闸门、分批执行路线和验收门禁。
 33. [33-work-log-20260512.md](33-work-log-20260512.md)
    今日工作记录：训练本体强化提交、GitHub 推送经验、后续路线图和当前未提交文档状态。
+34. [34-agent-standard-hardening-and-p0-training-20260512.md](34-agent-standard-hardening-and-p0-training-20260512.md)
+   Agent 标准门禁与 P0 训练本体强化记录：多 agent 写集、发布隐私加固、运行时边界、规划/社会决策模块 trial 数据和验收门禁。
+35. [35-attention-system-loop-and-trend-feedback-20260513.md](35-attention-system-loop-and-trend-feedback-20260513.md)
+   注意力系统级训练闭环与趋势反馈计划：把注意力模块从单页指标推进到系统级画像、跨 session 趋势和下一轮训练处方。
+36. [36-attention-loop-round1-review-20260513.md](36-attention-loop-round1-review-20260513.md)
+   注意力系统画像闭环第一轮复盘与第二轮计划：helper 合约、报告页系统画像、回归门禁和规划训练第二轮入口。
+37. [37-attention-loop-round2-depth-gates-20260513.md](37-attention-loop-round2-depth-gates-20260513.md)
+   注意力与规划训练第二轮深化与第三轮门禁计划：London Tower BFS 校验、Sliding Puzzle 精确解距和深度 smoke 门禁。
 
 ## 源汇总镜像
 
@@ -99,6 +107,6 @@
 
 ## 文档版本
 
-- 版本：`v1.6`
-- 生成日期：`2026-05-12`
+- 版本：`v1.10`
+- 生成日期：`2026-05-13`
 - 适用范围：`glm5` 与 `gpt` 文档体系融合
