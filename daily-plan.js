@@ -43,6 +43,17 @@
             supportsSeed: true
         },
         {
+            id: "stop-signal",
+            title: "Stop Signal",
+            domain: "attention",
+            href: "stop-signal.html",
+            minutes: 4,
+            goal: "在抑制已启动反应时保持节奏和稳定性。",
+            params: "建议标准短回合，先按最新处方完成，再看速度与稳定性。",
+            reason: "用于补齐抑制控制的停止成分，和 Go/No-Go 形成互补。",
+            supportsSeed: true
+        },
+        {
             id: "nback",
             title: "N-Back 记忆",
             domain: "memory",
@@ -180,32 +191,196 @@
         return Math.floor((date - start) / 86400000);
     }
 
+    function getSessionTime(session) {
+        const value = session && (session.finishedAt || session.startedAt);
+        const time = value ? new Date(value).getTime() : 0;
+        return Number.isFinite(time) ? time : 0;
+    }
+
+    function sortRecentSessions(sessions) {
+        return sessions
+            .slice()
+            .filter((session) => session && Object.keys(session).length > 0)
+            .sort((a, b) => getSessionTime(b) - getSessionTime(a));
+    }
+
     function getSessions() {
         const api = global.TrainingResults;
         if (!api || typeof api.getAllSessions !== "function") {
             return [];
         }
-        return api.getAllSessions();
+        return sortRecentSessions(api.getAllSessions());
     }
 
     function normalizeId(session) {
         return String(session.moduleId || session.gameId || "").trim();
     }
 
+    function toPlainObject(value) {
+        if (!value || typeof value !== "object" || Array.isArray(value)) {
+            return {};
+        }
+        return value;
+    }
+
+    function hasDisplayValue(value) {
+        if (value === null || value === undefined) {
+            return false;
+        }
+        if (typeof value === "string") {
+            return value.trim().length > 0;
+        }
+        if (typeof value === "number") {
+            return Number.isFinite(value);
+        }
+        if (typeof value === "boolean") {
+            return true;
+        }
+        if (Array.isArray(value)) {
+            return value.length > 0;
+        }
+        if (typeof value === "object") {
+            return Object.keys(value).length > 0;
+        }
+        return false;
+    }
+
+    function readSessionValue(session, keys) {
+        const summary = toPlainObject(session && session.summary);
+        const metrics = toPlainObject(session && session.metrics);
+        const sessionData = toPlainObject(session);
+        const sources = [summary, metrics, sessionData];
+
+        for (const key of keys) {
+            for (const source of sources) {
+                if (Object.prototype.hasOwnProperty.call(source, key)) {
+                    const value = source[key];
+                    if (hasDisplayValue(value)) {
+                        return value;
+                    }
+                }
+            }
+        }
+
+        return undefined;
+    }
+
+    function shortText(value, maxLength) {
+        const text = String(value).trim();
+        if (text.length <= maxLength) {
+            return text;
+        }
+        return `${text.slice(0, maxLength - 1)}…`;
+    }
+
+    function formatHintValue(key, value) {
+        if (!hasDisplayValue(value)) {
+            return "";
+        }
+
+        if (typeof value === "boolean") {
+            return value ? "是" : "否";
+        }
+
+        if (typeof value === "number") {
+            if (/ms|speed|duration|time/i.test(key)) {
+                return `${Math.round(value)}ms`;
+            }
+            return Number.isInteger(value) ? String(value) : String(Math.round(value * 100) / 100);
+        }
+
+        if (Array.isArray(value)) {
+            return value.length > 0 ? shortText(value.join("、"), 24) : "";
+        }
+
+        if (typeof value === "object") {
+            return shortText(JSON.stringify(value), 28);
+        }
+
+        return shortText(value, 32);
+    }
+
+    function qualityBoostFromValue(value, direction) {
+        if (!hasDisplayValue(value)) {
+            return 0;
+        }
+
+        if (typeof value === "boolean") {
+            return direction === "positive" && value ? 14 : 0;
+        }
+
+        if (typeof value === "number") {
+            const normalized = value > 1 ? value / 100 : value;
+            if (direction === "positive") {
+                if (normalized <= 0.3) return 16;
+                if (normalized <= 0.5) return 12;
+                if (normalized <= 0.7) return 6;
+                return 0;
+            }
+            if (normalized >= 0.75) return 14;
+            if (normalized >= 0.55) return 8;
+            return 0;
+        }
+
+        const text = String(value).toLowerCase();
+        const weakPatterns = ["low", "poor", "weak", "unstable", "volatile", "needs", "risk", "fragile", "低", "差", "弱", "不稳", "波动", "待巩固"];
+        const strongPatterns = ["good", "stable", "ready", "smooth", "high", "clear", "steady", "稳", "高", "良", "可", "准备好"];
+        if (direction === "positive") {
+            return weakPatterns.some((pattern) => text.includes(pattern)) ? 14 : 0;
+        }
+        return strongPatterns.some((pattern) => text.includes(pattern)) ? 12 : 0;
+    }
+
+    function consolidationBoost(item, latestSession) {
+        if (!latestSession) {
+            return 0;
+        }
+
+        let boost = 0;
+        boost += qualityBoostFromValue(readSessionValue(latestSession, ["staircaseQuality"]), "positive");
+        boost += qualityBoostFromValue(readSessionValue(latestSession, ["adaptiveStabilityLabel"]), "positive");
+        boost += qualityBoostFromValue(readSessionValue(latestSession, ["spanStability"]), "positive");
+        boost += qualityBoostFromValue(readSessionValue(latestSession, ["adaptationVolatility"]), "negative");
+        boost += qualityBoostFromValue(readSessionValue(latestSession, ["goWaitingFlag"]), "positive");
+        boost += qualityBoostFromValue(readSessionValue(latestSession, ["modeTransitionReadiness"]), "positive");
+
+        if (item.id === "nback" || item.id === "corsi" || item.id === "digit-span") {
+            boost += qualityBoostFromValue(readSessionValue(latestSession, ["adaptiveStabilityLabel"]), "positive");
+            boost += qualityBoostFromValue(readSessionValue(latestSession, ["spanStability"]), "positive");
+            boost += qualityBoostFromValue(readSessionValue(latestSession, ["modeTransitionReadiness"]), "positive");
+            boost += qualityBoostFromValue(readSessionValue(latestSession, ["adaptationVolatility"]), "negative");
+        }
+
+        if (item.id === "stop-signal") {
+            boost += qualityBoostFromValue(readSessionValue(latestSession, ["staircaseQuality", "staircaseQualityLabel"]), "positive");
+            boost += qualityBoostFromValue(readSessionValue(latestSession, ["goWaitingFlag"]), "positive");
+        }
+
+        return boost;
+    }
+
     function buildStats(sessions) {
         const stats = {};
-        sessions.slice(0, MAX_RECENT_SESSIONS).forEach((session, index) => {
+        sortRecentSessions(sessions).slice(0, MAX_RECENT_SESSIONS).forEach((session, index) => {
             const id = normalizeId(session);
             if (!id) return;
             if (!stats[id]) {
                 stats[id] = {
                     count: 0,
                     lastIndex: index,
-                    lastFinishedAt: session.finishedAt || null
+                    lastFinishedAt: session.finishedAt || null,
+                    latestSession: session,
+                    latestTime: getSessionTime(session)
                 };
             }
             stats[id].count += 1;
             stats[id].lastIndex = Math.min(stats[id].lastIndex, index);
+            const sessionTime = getSessionTime(session);
+            if (sessionTime >= (stats[id].latestTime || 0)) {
+                stats[id].latestSession = session;
+                stats[id].latestTime = sessionTime;
+                stats[id].lastFinishedAt = session.finishedAt || null;
+            }
         });
         return stats;
     }
@@ -213,7 +388,7 @@
     function buildDomainStats(sessions) {
         const byId = Object.fromEntries(CANDIDATES.map((item) => [item.id, item]));
         const stats = {};
-        sessions.slice(0, MAX_RECENT_SESSIONS).forEach((session, index) => {
+        sortRecentSessions(sessions).slice(0, MAX_RECENT_SESSIONS).forEach((session, index) => {
             const item = byId[normalizeId(session)];
             if (!item) return;
             if (!stats[item.domain]) {
@@ -243,12 +418,14 @@
     function scoreCandidate(item, itemStats, domainStats, position) {
         const itemStat = itemStats[item.id] || { count: 0, lastIndex: 999 };
         const domainStat = domainStats[item.domain] || { count: 0, lastIndex: 999 };
+        const latestSession = itemStat.latestSession || null;
         let score = 0;
         score += Math.min(itemStat.lastIndex, 30) * 3;
         score += Math.min(domainStat.lastIndex, 30) * 2;
         score -= itemStat.count * 5;
         score -= domainStat.count * 2;
         score += position;
+        score += consolidationBoost(item, latestSession);
         if (itemStat.lastIndex <= 2) score -= 80;
         if (domainStat.lastIndex <= 1) score -= 25;
         return score;
@@ -308,6 +485,118 @@
         };
     }
 
+    function latestSessionHint(item, latestSession) {
+        if (!latestSession) {
+            return `最近训练：暂无该模块记录，先按默认参数完成一轮。`;
+        }
+
+        const dateText = latestSession.finishedAt ? toDateKey(new Date(latestSession.finishedAt)) : "最近";
+        const fields = [];
+        const pushField = (label, keys) => {
+            const value = readSessionValue(latestSession, keys);
+            const text = formatHintValue(keys[0], value);
+            if (text) {
+                fields.push(`${label}${text}`);
+            }
+        };
+
+        if (item.id === "nback") {
+            pushField("建议N ", ["nextRecommendedN"]);
+            pushField("速度 ", ["nextRecommendedSpeedMs"]);
+            pushField("轮次 ", ["nextRecommendedRounds"]);
+            pushField("稳定性 ", ["adaptiveStabilityLabel", "staircaseQuality"]);
+        } else if (item.id === "corsi" || item.id === "digit-span") {
+            pushField("起始跨度 ", ["nextStartSpan", "startSpan"]);
+            pushField("模式 ", ["nextMode", "mode", "sequenceMode"]);
+            pushField("方块/轮次 ", ["nextBlockCount", "nextRecommendedRounds"]);
+            pushField("稳定性 ", ["adaptiveStabilityLabel", "spanStability", "staircaseQuality"]);
+            pushField("切换准备 ", ["modeTransitionReadiness"]);
+        } else if (item.id === "stop-signal") {
+            pushField("速度 ", ["nextRecommendedSpeedMs"]);
+            pushField("轮次 ", ["nextRecommendedRounds"]);
+            pushField("稳定性 ", ["staircaseQuality", "adaptiveStabilityLabel"]);
+            pushField("切换准备 ", ["modeTransitionReadiness"]);
+        } else {
+            pushField("处方 ", ["nextPracticeRecommendation", "nextPrescriptionReason", "recommendation"]);
+        }
+
+        const practiceRecommendation = readSessionValue(latestSession, [
+            "nextPracticeRecommendation",
+            "nextPrescriptionReason",
+            "recommendation"
+        ]);
+        const practiceText = formatHintValue("recommendation", practiceRecommendation);
+        if (practiceText && fields.length < 2) {
+            fields.push(practiceText);
+        }
+
+        const summaryText = fields.length > 0
+            ? fields.join("；")
+            : "最近一轮已完成，按现有参数继续即可。";
+        return `最近训练（${dateText}）：${summaryText}`;
+    }
+
+    function buildPlanDetails(item, latestSession) {
+        if (!latestSession) {
+            return {
+                params: item.params,
+                reason: item.reason,
+                hint: latestSessionHint(item, null)
+            };
+        }
+
+        const prescriptionFields = [];
+        const pushPrescription = (label, keys) => {
+            const value = readSessionValue(latestSession, keys);
+            const text = formatHintValue(keys[0], value);
+            if (text) {
+                prescriptionFields.push(`${label}${text}`);
+            }
+        };
+
+        if (item.id === "nback") {
+            pushPrescription("建议N ", ["nextRecommendedN"]);
+            pushPrescription("速度 ", ["nextRecommendedSpeedMs"]);
+            pushPrescription("轮次 ", ["nextRecommendedRounds"]);
+        } else if (item.id === "corsi" || item.id === "digit-span") {
+            pushPrescription("起始跨度 ", ["nextStartSpan", "startSpan"]);
+            pushPrescription("模式 ", ["nextMode", "mode", "sequenceMode"]);
+            pushPrescription("方块/轮次 ", ["nextBlockCount", "nextRecommendedRounds"]);
+        } else if (item.id === "stop-signal") {
+            pushPrescription("速度 ", ["nextRecommendedSpeedMs"]);
+            pushPrescription("轮次 ", ["nextRecommendedRounds"]);
+        }
+
+        const practiceRecommendation = readSessionValue(latestSession, [
+            "nextPracticeRecommendation",
+            "nextPrescriptionReason",
+            "recommendation"
+        ]);
+        const stabilityLabel = readSessionValue(latestSession, [
+            "adaptiveStabilityLabel",
+            "staircaseQuality",
+            "modeTransitionReadiness",
+            "spanStability"
+        ]);
+        const practiceText = formatHintValue("recommendation", practiceRecommendation);
+        const stabilityText = formatHintValue("stability", stabilityLabel);
+
+        const dynamicParams = prescriptionFields.length > 0 ? prescriptionFields.join("；") : item.params;
+        const dynamicReasonParts = [item.reason];
+        if (practiceText) {
+            dynamicReasonParts.push(`最近提示：${practiceText}`);
+        }
+        if (stabilityText) {
+            dynamicReasonParts.push(`状态：${stabilityText}`);
+        }
+
+        return {
+            params: dynamicParams,
+            reason: dynamicReasonParts.join("；"),
+            hint: latestSessionHint(item, latestSession)
+        };
+    }
+
     function renderPlan(plan, sessions) {
         const planList = document.getElementById("plan-list");
         const planCount = document.getElementById("plan-count");
@@ -330,9 +619,12 @@
         }
         if (!planList) return;
 
+        const itemStats = buildStats(sessions);
         const fragment = document.createDocumentFragment();
         plan.forEach((item, index) => {
             const link = withSeed(item, index);
+            const latestSession = itemStats[item.id] ? itemStats[item.id].latestSession : null;
+            const dynamicDetails = buildPlanDetails(item, latestSession);
             const article = document.createElement("article");
             article.className = "plan-item";
 
@@ -354,11 +646,15 @@
 
             const params = document.createElement("p");
             params.className = "plan-detail";
-            params.textContent = `建议参数：${item.params}`;
+            params.textContent = `建议参数：${dynamicDetails.params}`;
 
             const reason = document.createElement("p");
             reason.className = "plan-reason";
-            reason.textContent = `推荐理由：${item.reason}`;
+            reason.textContent = `推荐理由：${dynamicDetails.reason}`;
+
+            const hint = document.createElement("p");
+            hint.className = "plan-detail";
+            hint.textContent = dynamicDetails.hint;
 
             const actions = document.createElement("div");
             actions.className = "plan-actions";
@@ -376,7 +672,7 @@
                 actions.appendChild(seed);
             }
 
-            article.append(head, goal, params, reason, actions);
+            article.append(head, goal, params, reason, hint, actions);
             fragment.appendChild(article);
         });
 

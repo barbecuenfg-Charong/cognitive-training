@@ -88,6 +88,8 @@
    注意力与规划训练第二轮深化与第三轮门禁计划：London Tower BFS 校验、Sliding Puzzle 精确解距和深度 smoke 门禁。
 38. [38-training-body-round3-creativity-social-calibration-20260513.md](38-training-body-round3-creativity-social-calibration-20260513.md)
    训练本体第三轮收口：创造力、社会认知与校准门禁强化，多 agent 单文件收口、训练深度 smoke 扩展与全量验证结论。
+39. [39-training-loop-round4-report-plan-runtime-20260513.md](39-training-loop-round4-report-plan-runtime-20260513.md)
+   训练本体第四轮计划：报告页与 Daily Plan 的运行时消费、反馈信号门禁和阈值校准口径。
 
 ## 源汇总镜像
 
@@ -109,6 +111,6 @@
 
 ## 文档版本
 
-- 版本：`v1.11`
+- 版本：`v1.12`
 - 生成日期：`2026-05-13`
 - 适用范围：`glm5` 与 `gpt` 文档体系融合

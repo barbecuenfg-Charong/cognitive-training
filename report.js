@@ -36,6 +36,9 @@ const DEFAULT_SUMMARY_ENTRY_LIMIT = 5;
 const MODULE_SUMMARY_ENTRY_LIMIT = 8;
 const MODULE_METRIC_KEY_GROUPS = {
     "stop-signal": [
+        ["ssdStaircaseQuality", "staircaseQualityLabel"],
+        ["goWaitingFlag", "strategicSlowingFlag"],
+        ["nextPracticeRecommendation"],
         ["stopSuccessRate", "stopSuccessRateValue"],
         ["ssrtEstimateMs", "ssrtEstimate"],
         ["stopFailureRate", "pRespondOnStop"],
@@ -72,6 +75,9 @@ const MODULE_METRIC_KEY_GROUPS = {
         ["totalBalloons"]
     ],
     nback: [
+        ["adaptiveStabilityLabel", "loadStability", "adaptiveStabilityScore"],
+        ["nLevelOscillationCount", "speedOscillationCount", "reversalCount"],
+        ["adaptationVolatility"],
         ["nLevel"],
         ["finalNLevel"],
         ["startingNLevel"],
@@ -86,6 +92,10 @@ const MODULE_METRIC_KEY_GROUPS = {
         ["correctRejectionRate"]
     ],
     corsi: [
+        ["adaptiveStabilityLabel", "spanStability", "staircaseQuality"],
+        ["spanOscillationCount", "reversalCount"],
+        ["adaptationVolatility"],
+        ["modeTransitionReadiness", "backwardReadiness", "sortedReadiness"],
         ["maxSpan"],
         ["finalSpan"],
         ["startingSpan", "startSpan"],
@@ -141,6 +151,10 @@ const MODULE_METRIC_KEY_GROUPS = {
         ["tooFastCount"]
     ],
     "digit-span": [
+        ["adaptiveStabilityLabel", "spanStability", "staircaseQuality"],
+        ["spanOscillationCount", "reversalCount"],
+        ["adaptationVolatility"],
+        ["modeTransitionReadiness", "backwardReadiness", "sortedReadiness"],
         ["maxSpan"],
         ["finalSpan"],
         ["startingSpan", "startSpan"],
@@ -201,6 +215,25 @@ const MODULE_METRIC_KEY_GROUPS = {
         ["meanAbsErrorPct", "meanAbsoluteErrorPct", "meanAbsError", "maePct", "mae"],
         ["approxAccuracy", "approximateAccuracy", "approxAccuracyRate", "approxCorrectRate"],
         ["approxCorrectCount", "approximateCorrectCount", "approxCorrect", "approxCorrectTrials"]
+    ],
+    "sally-anne": [
+        ["explanationFeedback"],
+        ["nextStrategyPractice"],
+        ["questionType", "errorType"]
+    ],
+    "eyes-reading": [
+        ["vocabularyRiskCount", "confusionBreakdown"],
+        ["nextPracticeRecommendation"],
+        ["emotionCategoryBreakdown"],
+        ["emotionCategory"],
+        ["wordComprehensionRisk", "lexicalDemand"]
+    ],
+    torrance: [
+        ["scoringBoundary"],
+        ["titleMetric", "titleScore"],
+        ["detailMetric", "detailScore"],
+        ["categoryCount"],
+        ["transformationCount", "transformationLabels"]
     ]
 };
 const METRIC_LABELS = {
@@ -231,6 +264,11 @@ const METRIC_LABELS = {
     ssrtEstimateMs: "SSRT",
     meanSsdMs: "平均SSD",
     finalSsdMs: "最终SSD",
+    ssdStaircaseQuality: "SSD阶梯质量",
+    staircaseQualityLabel: "阶梯质量",
+    staircaseQuality: "阶梯质量",
+    goWaitingFlag: "Go等待信号",
+    strategicSlowingFlag: "策略性放慢",
     scanStability: "扫描稳定性",
     errorRate: "错误率",
     gridSize: "网格",
@@ -248,6 +286,13 @@ const METRIC_LABELS = {
     nLevel: "N值",
     finalNLevel: "最终N",
     startingNLevel: "起始N",
+    adaptiveStabilityLabel: "自适应稳定性",
+    loadStability: "负荷稳定性",
+    adaptiveStabilityScore: "自适应稳定分",
+    nLevelOscillationCount: "N值振荡",
+    speedOscillationCount: "速度振荡",
+    reversalCount: "反转次数",
+    adaptationVolatility: "适应波动",
     nextRecommendedN: "建议N",
     nextRecommendedSpeedMs: "建议速度",
     nextRecommendedRounds: "建议轮次",
@@ -259,12 +304,17 @@ const METRIC_LABELS = {
     minSpan: "最低广度",
     minObservedSpan: "最低观察",
     maxObservedSpan: "最高观察",
+    spanStability: "广度稳定性",
+    spanOscillationCount: "广度振荡",
     nextStartSpan: "建议起始",
     nextMode: "建议模式",
     nextBlockCount: "建议方块",
     longestCorrectSequence: "最长正确序列",
     sequenceMode: "序列模式",
     orderErrorCount: "顺序错误",
+    modeTransitionReadiness: "模式切换准备",
+    backwardReadiness: "倒背准备",
+    sortedReadiness: "排序准备",
     sessionType: "训练类型",
     isAdaptive: "自适应",
     adaptiveMode: "自适应",
@@ -322,6 +372,9 @@ const METRIC_LABELS = {
     generatedTemplateCount: "生成题数",
     ruleTemplateId: "模板ID",
     validationIssueCount: "校验问题",
+    scoringBoundary: "评分边界",
+    titleMetric: "标题指标",
+    detailMetric: "细节指标",
     finalNoGoRatio: "最终No-Go比例",
     finalStimulusDuration: "最终刺激时长",
     finalIsiRange: "最终ISI",
@@ -340,8 +393,13 @@ const METRIC_LABELS = {
     winStayRate: "赢后保持",
     loseShiftRate: "输后转换",
     perseverationRate: "旧规则坚持",
+    vocabularyRiskCount: "词汇风险",
+    confusionBreakdown: "混淆分布",
+    explanationFeedback: "解释反馈",
+    nextStrategyPractice: "下一轮策略",
     recommendation: "训练提示",
     nextPrescriptionReason: "调整原因",
+    nextPracticeRecommendation: "下一轮建议",
     mode: "模式",
     blockCount: "方块数",
     startSpan: "起始广度",
@@ -436,7 +494,10 @@ const ERROR_PERCENT_KEY_GROUPS = [
 ];
 const NEXT_PARAMETER_KEY_GROUPS = [
     ["recommendation"],
+    ["nextPracticeRecommendation"],
     ["nextPrescriptionReason"],
+    ["explanationFeedback"],
+    ["nextStrategyPractice"],
     ["nextRecommendedN"],
     ["nextRecommendedSpeedMs"],
     ["nextRecommendedRounds"],
@@ -469,7 +530,7 @@ function shortText(value, maxLength) {
 }
 
 function isPercentKey(key) {
-    return /accuracy|rate|ratio|probability|率|pct|percent/i.test(key);
+    return /accuracy|rate|ratio|probability|quality|stability|readiness|volatility|率|pct|percent/i.test(key);
 }
 
 function isStoredAsRatioKey(key) {
@@ -681,6 +742,15 @@ function moduleMetricGroups(session) {
     if (/bayes[-_]?update|bayesian/.test(moduleText) || moduleText.includes("贝叶斯")) {
         return MODULE_METRIC_KEY_GROUPS["bayes-update"];
     }
+    if (/sally[-_ ]?anne/.test(moduleText) || moduleText.includes("心理理论")) {
+        return MODULE_METRIC_KEY_GROUPS["sally-anne"];
+    }
+    if (/eyes[-_ ]?reading|reading[-_ ]?eyes/.test(moduleText) || moduleText.includes("读眼")) {
+        return MODULE_METRIC_KEY_GROUPS["eyes-reading"];
+    }
+    if (/torrance/.test(moduleText) || moduleText.includes("托兰斯")) {
+        return MODULE_METRIC_KEY_GROUPS.torrance;
+    }
     return [];
 }
 
@@ -873,6 +943,40 @@ function metricNumberFromSources(session, keys) {
     return null;
 }
 
+function metricValueFromSources(session, keys) {
+    const summary = toPlainObject(session && session.summary);
+    const metrics = toPlainObject(session && session.metrics);
+    const sessionData = toPlainObject(session);
+    const sources = [summary, metrics, sessionData];
+
+    for (const source of sources) {
+        for (const key of keys) {
+            if (Object.prototype.hasOwnProperty.call(source, key)) {
+                const value = source[key];
+                if (value !== null && value !== undefined && value !== "") {
+                    return value;
+                }
+            }
+        }
+    }
+
+    return null;
+}
+
+function isTruthySignal(value) {
+    if (typeof value === "boolean") {
+        return value;
+    }
+    if (typeof value === "number") {
+        return value !== 0;
+    }
+    if (typeof value === "string") {
+        const text = value.trim().toLowerCase();
+        return text === "true" || text === "yes" || text === "y" || text === "1" || text === "on" || text === "是";
+    }
+    return Boolean(value);
+}
+
 function clampScore(value) {
     if (!Number.isFinite(value)) {
         return null;
@@ -950,7 +1054,26 @@ function sessionIssueSignals(session) {
     const rtStdDev = metricNumberFromSources(session, ["rtStdDevMs", "rtStdDev", "rtVariabilityMs", "rtVariability"]);
     const tooFastCount = metricNumberFromSources(session, ["tooFastCount"]);
     const validationIssueCount = metricNumberFromSources(session, ["validationIssueCount"]);
+    const staircaseQuality = metricNumberFromSources(session, ["ssdStaircaseQuality", "staircaseQuality"]);
+    const staircaseQualityLabel = metricValueFromSources(session, ["staircaseQualityLabel"]);
+    const goWaitingFlag = metricValueFromSources(session, ["goWaitingFlag"]);
+    const strategicSlowingFlag = metricValueFromSources(session, ["strategicSlowingFlag"]);
+    const adaptiveStabilityScore = metricNumberFromSources(session, ["adaptiveStabilityScore"]);
+    const loadStability = metricNumberFromSources(session, ["loadStability"]);
+    const nLevelOscillationCount = metricNumberFromSources(session, ["nLevelOscillationCount"]);
+    const speedOscillationCount = metricNumberFromSources(session, ["speedOscillationCount"]);
+    const spanStability = metricNumberFromSources(session, ["spanStability"]);
+    const spanOscillationCount = metricNumberFromSources(session, ["spanOscillationCount"]);
+    const adaptationVolatility = metricNumberFromSources(session, ["adaptationVolatility"]);
+    const vocabularyRiskCount = metricNumberFromSources(session, ["vocabularyRiskCount"]);
+    const confusionBreakdown = metricValueFromSources(session, ["confusionBreakdown"]);
     const score = performanceScore(session);
+    const isLowRatioOrPercent = (value, percentThreshold, ratioThreshold) => (
+        value !== null && (value <= 1 ? value < ratioThreshold : value < percentThreshold)
+    );
+    const isHighRatioOrPercent = (value, percentThreshold, ratioThreshold) => (
+        value !== null && (value <= 1 ? value > ratioThreshold : value > percentThreshold)
+    );
 
     if (overallAccuracy !== null && overallAccuracy < 70) {
         addUniqueIssue(issues, "正确率偏低，下一轮先降一点速度或难度");
@@ -981,6 +1104,45 @@ function sessionIssueSignals(session) {
     }
     if (validationIssueCount !== null && validationIssueCount > 0) {
         addUniqueIssue(issues, "题目校验问题较多，下一轮先复盘错题规则");
+    }
+    if (isLowRatioOrPercent(staircaseQuality, 55, 0.55)) {
+        addUniqueIssue(issues, "阶梯质量偏低，下一轮先稳定自适应更新");
+    }
+    if (typeof staircaseQualityLabel === "string" && /low|poor|弱|差|不稳|unstable|bad/i.test(staircaseQualityLabel)) {
+        addUniqueIssue(issues, "阶梯质量偏低，下一轮先稳定自适应更新");
+    }
+    if (isTruthySignal(goWaitingFlag)) {
+        addUniqueIssue(issues, "Go等待信号明显，下一轮注意别提前等待触发");
+    }
+    if (isTruthySignal(strategicSlowingFlag)) {
+        addUniqueIssue(issues, "存在策略性放慢，下一轮保持自然反应节奏");
+    }
+    if (adaptiveStabilityScore !== null && adaptiveStabilityScore < 60) {
+        addUniqueIssue(issues, "自适应稳定性偏弱，下一轮先稳住负荷再提难度");
+    }
+    if (isLowRatioOrPercent(loadStability, 60, 0.6)) {
+        addUniqueIssue(issues, "负荷稳定性不足，下一轮先减少切换压力");
+    }
+    if (nLevelOscillationCount !== null && nLevelOscillationCount >= 3) {
+        addUniqueIssue(issues, "N值振荡较多，下一轮先保持更平稳的自适应轨迹");
+    }
+    if (speedOscillationCount !== null && speedOscillationCount >= 3) {
+        addUniqueIssue(issues, "速度振荡较多，下一轮先保持更平稳的自适应轨迹");
+    }
+    if (isLowRatioOrPercent(spanStability, 60, 0.6)) {
+        addUniqueIssue(issues, "广度稳定性偏弱，下一轮先巩固当前跨度");
+    }
+    if (spanOscillationCount !== null && spanOscillationCount >= 3) {
+        addUniqueIssue(issues, "广度振荡较多，下一轮先巩固当前跨度");
+    }
+    if (adaptationVolatility !== null && isHighRatioOrPercent(adaptationVolatility, 3, 0.3)) {
+        addUniqueIssue(issues, "适应波动较大，下一轮先减少参数来回跳动");
+    }
+    if (vocabularyRiskCount !== null && vocabularyRiskCount > 0) {
+        addUniqueIssue(issues, "词汇风险偏高，下一轮先降低词汇理解负荷");
+    }
+    if (confusionBreakdown !== null && typeof confusionBreakdown === "object" && Object.keys(confusionBreakdown).length > 0) {
+        addUniqueIssue(issues, "表情混淆较多，下一轮先复核易混类别");
     }
     if (issues.length === 0 && score !== null && score < 65) {
         addUniqueIssue(issues, "综合表现低于近期目标，下一轮先做低负荷巩固");
