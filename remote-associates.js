@@ -1,7 +1,18 @@
 const MODULE_ID = "remote-associates";
-const GAME_NAME = "远距离联想测验";
-const CONTENT_VERSION = "remote-associates-graded-hints-v4";
+const GAME_NAME = "远距联想练习";
+const CONTENT_VERSION = "remote-associates-graded-hints-v5";
 const SESSION_ITEM_COUNT = 12;
+const PRACTICE_FEEDBACK_BOUNDARY = "本页只给远距联想练习反馈；正确率、反应时和线索距离均为本题库内的练习信号，不是诊断或标准化创造力评分。";
+const HINT_LADDER = [
+    { level: 1, label: "语义域提示", purpose: "缩小答案所在语义范围，不直接暴露词位。" },
+    { level: 2, label: "词位结构提示", purpose: "说明答案与三个线索的前后组合方式。" },
+    { level: 3, label: "答案揭示", purpose: "给出答案，用于复盘而不是计分优势。" }
+];
+const DIFFICULTY_PRACTICE_TARGETS = {
+    easy: "巩固高频组合和快速检索。",
+    medium: "练习跨情境组合，把三个线索分别前后试拼。",
+    hard: "练习跨语义域或隐喻线索，先找共同结构再作答。"
+};
 
 const ALL_ITEMS = [
     {
@@ -47,6 +58,50 @@ const ALL_ITEMS = [
         semanticDistance: 1,
         clueDistanceDescription: "近距离：电子设备线索集中。",
         hints: ["答案和设备、能源有关。", "它能组成“充__”“__脑”“__话”。", "答案是：电。"]
+    },
+    {
+        id: "rat-easy-grass",
+        triad: ["青", "地", "莓"],
+        answer: "草",
+        acceptedAnswers: ["草"],
+        compounds: ["青草", "草地", "草莓"],
+        difficulty: "easy",
+        semanticDistance: 1,
+        clueDistanceDescription: "近距离：自然和食物线索都较直接。",
+        hints: ["答案常见于植物或地面场景。", "它能组成“青__”“__地”“__莓”。", "答案是：草。"]
+    },
+    {
+        id: "rat-easy-book",
+        triad: ["看", "包", "店"],
+        answer: "书",
+        acceptedAnswers: ["书"],
+        compounds: ["看书", "书包", "书店"],
+        difficulty: "easy",
+        semanticDistance: 1,
+        clueDistanceDescription: "近距离：阅读和学习用品线索集中。",
+        hints: ["答案和阅读、学习有关。", "它能组成“看__”“__包”“__店”。", "答案是：书。"]
+    },
+    {
+        id: "rat-easy-mountain",
+        triad: ["高", "水", "洞"],
+        answer: "山",
+        acceptedAnswers: ["山"],
+        compounds: ["高山", "山水", "山洞"],
+        difficulty: "easy",
+        semanticDistance: 1,
+        clueDistanceDescription: "近距离：自然地貌线索较直接。",
+        hints: ["答案和地貌有关。", "它能组成“高__”“__水”“__洞”。", "答案是：山。"]
+    },
+    {
+        id: "rat-easy-door",
+        triad: ["开", "口", "铃"],
+        answer: "门",
+        acceptedAnswers: ["门"],
+        compounds: ["开门", "门口", "门铃"],
+        difficulty: "easy",
+        semanticDistance: 1,
+        clueDistanceDescription: "近距离：家庭入口线索直接。",
+        hints: ["答案和入口有关。", "它能组成“开__”“__口”“__铃”。", "答案是：门。"]
     },
     {
         id: "rat-medium-heart",
@@ -104,6 +159,50 @@ const ALL_ITEMS = [
         hints: ["答案常和通行有关。", "它能组成“天__”“__梁”“过__”。", "答案是：桥。"]
     },
     {
+        id: "rat-medium-wind",
+        triad: ["台", "铃", "景"],
+        answer: "风",
+        acceptedAnswers: ["风"],
+        compounds: ["台风", "风铃", "风景"],
+        difficulty: "medium",
+        semanticDistance: 2,
+        clueDistanceDescription: "中距离：天气、物件和景象线索混合。",
+        hints: ["答案可指自然现象，也可出现在物件或景象词里。", "它能组成“台__”“__铃”“__景”。", "答案是：风。"]
+    },
+    {
+        id: "rat-medium-light",
+        triad: ["阳", "盘", "速"],
+        answer: "光",
+        acceptedAnswers: ["光"],
+        compounds: ["阳光", "光盘", "光速"],
+        difficulty: "medium",
+        semanticDistance: 2,
+        clueDistanceDescription: "中距离：自然、媒介和物理概念混合。",
+        hints: ["答案和明亮、介质或速度都能关联。", "它能组成“阳__”“__盘”“__速”。", "答案是：光。"]
+    },
+    {
+        id: "rat-medium-sea",
+        triad: ["上", "报", "豚"],
+        answer: "海",
+        acceptedAnswers: ["海"],
+        compounds: ["上海", "海报", "海豚"],
+        difficulty: "medium",
+        semanticDistance: 2,
+        clueDistanceDescription: "中距离：地名、媒介和动物线索混合。",
+        hints: ["答案可出现在地名，也可和海洋动物有关。", "它能组成“上__”“__报”“__豚”。", "答案是：海。"]
+    },
+    {
+        id: "rat-medium-line",
+        triad: ["红", "路", "索"],
+        answer: "线",
+        acceptedAnswers: ["线"],
+        compounds: ["红线", "线路", "线索"],
+        difficulty: "medium",
+        semanticDistance: 2,
+        clueDistanceDescription: "中距离：颜色边界、路径和推理线索混合。",
+        hints: ["答案可表示细长物、路径或推理方向。", "它能组成“红__”“__路”“__索”。", "答案是：线。"]
+    },
+    {
         id: "rat-hard-ink",
         triad: ["水", "镜", "笔"],
         answer: "墨",
@@ -157,6 +256,50 @@ const ALL_ITEMS = [
         semanticDistance: 3,
         clueDistanceDescription: "远距离：媒介、人物轮廓和反射线索混合。",
         hints: ["答案和光线或画面有关。", "它能组成“电__”“背__”“倒__”。", "答案是：影。"]
+    },
+    {
+        id: "rat-hard-tide",
+        triad: ["海", "思", "流"],
+        answer: "潮",
+        acceptedAnswers: ["潮"],
+        compounds: ["海潮", "思潮", "潮流"],
+        difficulty: "hard",
+        semanticDistance: 3,
+        clueDistanceDescription: "远距离：自然现象、思想和流行趋势跨域。",
+        hints: ["答案可指水面变化，也可用于思想或流行。", "它能组成“海__”“思__”“__流”。", "答案是：潮。"]
+    },
+    {
+        id: "rat-hard-wheel",
+        triad: ["年", "齿", "回"],
+        answer: "轮",
+        acceptedAnswers: ["轮"],
+        compounds: ["年轮", "齿轮", "轮回"],
+        difficulty: "hard",
+        semanticDistance: 3,
+        clueDistanceDescription: "远距离：时间痕迹、机械部件和循环概念跨域。",
+        hints: ["答案可指圆形结构，也可表示循环。", "它能组成“年__”“齿__”“__回”。", "答案是：轮。"]
+    },
+    {
+        id: "rat-hard-score",
+        triad: ["乐", "族", "食"],
+        answer: "谱",
+        acceptedAnswers: ["谱"],
+        compounds: ["乐谱", "族谱", "食谱"],
+        difficulty: "hard",
+        semanticDistance: 3,
+        clueDistanceDescription: "远距离：音乐、亲属记录和烹饪说明跨域。",
+        hints: ["答案可表示成体系的记录或说明。", "它能组成“乐__”“族__”“食__”。", "答案是：谱。"]
+    },
+    {
+        id: "rat-hard-curtain",
+        triad: ["开", "夜", "银"],
+        answer: "幕",
+        acceptedAnswers: ["幕"],
+        compounds: ["开幕", "夜幕", "银幕"],
+        difficulty: "hard",
+        semanticDistance: 3,
+        clueDistanceDescription: "远距离：事件、时间氛围和影像媒介跨域。",
+        hints: ["答案可和舞台或画面有关，也可指夜色。", "它能组成“开__”“夜__”“银__”。", "答案是：幕。"]
     }
 ];
 const ITEM_BANK = ALL_ITEMS.map((item) => ({
@@ -305,7 +448,8 @@ function pushTrial({ abandoned }) {
         levelUsed: currentHintLevel,
         hintsAvailable: item.hints.length,
         usedAnyHint: currentHintLevel > 0,
-        revealedHints: item.hints.slice(0, currentHintLevel)
+        revealedHints: item.hints.slice(0, currentHintLevel),
+        ladder: HINT_LADDER.slice(0, item.hints.length)
     };
     const trial = {
         trialIndex: index,
@@ -318,16 +462,25 @@ function pushTrial({ abandoned }) {
         response,
         correct,
         abandoned,
+        abandon: abandoned,
         gaveUp: abandoned,
         rtMs,
+        responseTimeMs: rtMs,
+        responseTimeSec: roundMetric(rtMs / 1000, 2),
         hintLevelUsed: currentHintLevel,
+        hintStage: currentHintLevel === 0
+            ? "no-hint"
+            : (HINT_LADDER[currentHintLevel - 1] || { label: "提示" }).label,
         hintsAvailable: item.hints.length,
         hintUsage,
         difficulty: item.difficulty,
+        difficultyPracticeTarget: DIFFICULTY_PRACTICE_TARGETS[item.difficulty],
         semanticDistance: item.semanticDistance,
         associationDistance: item.associationDistance,
         clueDistanceDescription: item.clueDistanceDescription,
         associationDistanceDescription: item.associationDistanceDescription,
+        practiceFeedbackBoundary: PRACTICE_FEEDBACK_BOUNDARY,
+        nonStandardizedScoring: true,
         seed: sessionSeed,
         contentVersion: CONTENT_VERSION
     };
@@ -516,6 +669,11 @@ function buildSummary() {
         itemOrder,
         itemBank: sessionItems.map(serializeItemMetadata),
         itemBankVersion: CONTENT_VERSION,
+        itemPoolSize: ITEM_BANK.length,
+        hintLadder: HINT_LADDER.slice(),
+        difficultyPracticeTargets: { ...DIFFICULTY_PRACTICE_TARGETS },
+        practiceFeedbackBoundary: PRACTICE_FEEDBACK_BOUNDARY,
+        nonStandardizedScoring: true,
         total,
         completedTrials: trialLog.length,
         correct,
@@ -571,6 +729,7 @@ function saveTrainingSession(finishedAt, summary) {
         metrics: {
             seed: sessionSeed,
             contentVersion: CONTENT_VERSION,
+            nonStandardizedScoring: true,
             total: summary.total,
             correct: summary.correct,
             accuracy: summary.accuracy,
@@ -586,6 +745,9 @@ function saveTrainingSession(finishedAt, summary) {
             meanRtByDifficulty: summary.meanRtByDifficulty,
             semanticDistanceScale: summary.semanticDistanceScale,
             cueDistanceBoundary: summary.cueDistanceBoundary,
+            hintLadder: summary.hintLadder,
+            difficultyPracticeTargets: summary.difficultyPracticeTargets,
+            practiceFeedbackBoundary: summary.practiceFeedbackBoundary,
             nextRecommendation: summary.nextRecommendation,
             nextPracticeRecommendation: summary.nextPracticeRecommendation
         },

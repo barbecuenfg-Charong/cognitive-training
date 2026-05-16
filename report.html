@@ -169,6 +169,10 @@
             padding-top: 0;
         }
 
+        .trend-action-list li {
+            font-weight: 600;
+        }
+
         .domain-summary {
             display: flex;
             flex-wrap: wrap;
@@ -258,6 +262,10 @@
                         <h3 id="feedback-trend-title">最近训练趋势</h3>
                         <p id="feedback-trend" class="feedback-empty">暂无可用训练记录。</p>
                     </section>
+                    <section class="feedback-panel" aria-labelledby="trend-actions-title">
+                        <h3 id="trend-actions-title">推荐行动</h3>
+                        <ul id="trend-action-list" class="feedback-list trend-action-list"></ul>
+                    </section>
                     <section class="feedback-panel wide" aria-labelledby="attention-system-title">
                         <h3 id="attention-system-title">注意力系统画像</h3>
                         <p id="attention-system-summary" class="feedback-empty">暂无注意力系统记录。</p>
@@ -308,6 +316,17 @@
 
     <script src="src/shared/training-results.js"></script>
     <script src="src/shared/attention-profile.js"></script>
+    <script>
+        (function loadTrainingTrendsHelper() {
+            var script = document.createElement("script");
+            script.src = "src/shared/training-trends.js";
+            script.async = true;
+            script.onload = function () {
+                window.dispatchEvent(new Event("training-trends-ready"));
+            };
+            document.currentScript.parentNode.insertBefore(script, document.currentScript.nextSibling);
+        })();
+    </script>
     <script src="report.js"></script>
 </body>
 </html>

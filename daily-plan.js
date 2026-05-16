@@ -178,6 +178,34 @@
 
     const DEFAULT_PLAN_IDS = ["schulte", "nback", "task-switching", "mental-rotation"];
     const MAX_RECENT_SESSIONS = 80;
+    const TREND_MIN_SAMPLE_SIZE = 3;
+    const TREND_HELPER_WAIT_MS = 900;
+    const TREND_ADVICE = {
+        "sample-insufficient": {
+            label: "样本不足",
+            boost: 22,
+            params: "趋势样本不足，先补同模块可比记录，暂不升难度。",
+            reason: "补样本后再判断周期调整。"
+        },
+        declining: {
+            label: "趋势下降",
+            boost: 34,
+            params: "跨次趋势下降，本轮降负荷，只降低一个难度参数或缩短轮次。",
+            reason: "优先恢复准确性和节奏稳定。"
+        },
+        "high-volatility": {
+            label: "高波动",
+            boost: 28,
+            params: "跨次波动偏高，本轮做巩固，保持当前难度并减少参数变化。",
+            reason: "先观察能否连续稳定，再考虑升阶。"
+        },
+        "stable-rising": {
+            label: "稳定上升",
+            boost: 14,
+            params: "跨次表现稳定上升，可小幅升阶，但一次只调整一个参数。",
+            reason: "用小步进验证负荷是否合适。"
+        }
+    };
 
     function toDateKey(date) {
         const year = date.getFullYear();
@@ -213,7 +241,11 @@
     }
 
     function normalizeId(session) {
-        return String(session.moduleId || session.gameId || "").trim();
+        return normalizeModuleId(session && (session.moduleId || session.gameId));
+    }
+
+    function normalizeModuleId(value) {
+        return String(value || "").trim();
     }
 
     function toPlainObject(value) {
@@ -263,6 +295,375 @@
         }
 
         return undefined;
+    }
+
+    function readObjectValue(source, keys) {
+        const root = toPlainObject(source);
+        const sources = [
+            root,
+            toPlainObject(root.trend),
+            toPlainObject(root.summary),
+            toPlainObject(root.signal),
+            toPlainObject(root.plan),
+            toPlainObject(root.recommendation),
+            toPlainObject(root.advice)
+        ];
+
+        for (const key of keys) {
+            for (const candidate of sources) {
+                if (Object.prototype.hasOwnProperty.call(candidate, key)) {
+                    const value = candidate[key];
+                    if (hasDisplayValue(value)) {
+                        return value;
+                    }
+                }
+            }
+        }
+
+        return undefined;
+    }
+
+    function toNumber(value) {
+        if (typeof value === "number" && Number.isFinite(value)) {
+            return value;
+        }
+        if (typeof value === "string" && value.trim()) {
+            const parsed = Number(value);
+            return Number.isFinite(parsed) ? parsed : null;
+        }
+        return null;
+    }
+
+    function compactText(values) {
+        return values
+            .filter(hasDisplayValue)
+            .map((value) => String(value).toLowerCase())
+            .join(" ");
+    }
+
+    function includesAny(text, patterns) {
+        return patterns.some((pattern) => text.includes(pattern));
+    }
+
+    function normalizedDelta(value) {
+        const number = toNumber(value);
+        if (number === null) {
+            return null;
+        }
+        return Math.abs(number) > 1 ? number / 100 : number;
+    }
+
+    function isHighVolatilityValue(value) {
+        const number = normalizedDelta(value);
+        return number !== null && number >= 0.25;
+    }
+
+    function isLowVolatilityValue(value) {
+        const number = normalizedDelta(value);
+        return number !== null && number <= 0.12;
+    }
+
+    function getTrainingTrendsApi() {
+        const api = global.TrainingTrends;
+        return api && typeof api === "object" ? api : null;
+    }
+
+    function callTrendHelper(api, name, args) {
+        if (!api || typeof api[name] !== "function") {
+            return null;
+        }
+        try {
+            const result = api[name](...args);
+            return result && typeof result === "object" ? result : null;
+        } catch (_error) {
+            return null;
+        }
+    }
+
+    function addTrendSignal(target, moduleId, signal) {
+        const id = normalizeModuleId(moduleId);
+        if (!id || !signal || typeof signal !== "object" || Array.isArray(signal)) {
+            return;
+        }
+        target[id] = Object.assign({}, target[id] || {}, signal, { moduleId: id });
+    }
+
+    function signalModuleId(signal) {
+        const value = readObjectValue(signal, [
+            "moduleId",
+            "gameId",
+            "id",
+            "taskId",
+            "module"
+        ]);
+        if (value && typeof value === "object") {
+            return "";
+        }
+        return normalizeModuleId(value);
+    }
+
+    function collectTrendSignals(target, value) {
+        if (!value) {
+            return;
+        }
+
+        if (Array.isArray(value)) {
+            value.forEach((item) => collectTrendSignals(target, item));
+            return;
+        }
+
+        if (typeof value !== "object") {
+            return;
+        }
+
+        const id = signalModuleId(value);
+        if (id) {
+            addTrendSignal(target, id, value);
+        }
+
+        const containerKeys = [
+            "modules",
+            "moduleTrends",
+            "moduleSignals",
+            "byModule",
+            "trends",
+            "signals",
+            "planSignals",
+            "recommendations",
+            "items"
+        ];
+
+        containerKeys.forEach((key) => {
+            const container = value[key];
+            if (Array.isArray(container)) {
+                container.forEach((item) => collectTrendSignals(target, item));
+                return;
+            }
+            if (!container || typeof container !== "object") {
+                return;
+            }
+            Object.keys(container).forEach((moduleId) => {
+                const signal = container[moduleId];
+                if (signal && typeof signal === "object") {
+                    addTrendSignal(target, moduleId, signal);
+                    collectTrendSignals(target, signal);
+                }
+            });
+        });
+
+        if (!id) {
+            const candidateIds = new Set(CANDIDATES.map((item) => item.id));
+            Object.keys(value).forEach((moduleId) => {
+                const signal = value[moduleId];
+                if (candidateIds.has(moduleId) && signal && typeof signal === "object") {
+                    addTrendSignal(target, moduleId, signal);
+                    collectTrendSignals(target, signal);
+                }
+            });
+        }
+    }
+
+    function groupSessionsByModule(sessions) {
+        const groups = {};
+        sessions.forEach((session) => {
+            const id = normalizeId(session);
+            if (!id) return;
+            if (!groups[id]) {
+                groups[id] = [];
+            }
+            groups[id].push(session);
+        });
+        Object.keys(groups).forEach((id) => {
+            groups[id].sort((a, b) => getSessionTime(a) - getSessionTime(b));
+        });
+        return groups;
+    }
+
+    function buildTrendContext(sessions) {
+        const api = getTrainingTrendsApi();
+        const recentSessions = sortRecentSessions(sessions).slice(0, MAX_RECENT_SESSIONS);
+        const context = {
+            available: Boolean(api),
+            analysis: null,
+            planSignals: null,
+            moduleSignals: {},
+            groups: groupSessionsByModule(recentSessions)
+        };
+
+        if (!api) {
+            return context;
+        }
+
+        context.analysis = callTrendHelper(api, "analyzeTrainingTrends", [
+            recentSessions,
+            { maxSessions: MAX_RECENT_SESSIONS, minSampleSize: TREND_MIN_SAMPLE_SIZE }
+        ]);
+        context.planSignals = callTrendHelper(api, "buildPlanSignals", [recentSessions]);
+
+        collectTrendSignals(context.moduleSignals, context.analysis);
+        collectTrendSignals(context.moduleSignals, context.planSignals);
+
+        if (typeof api.summarizeModuleTrend === "function") {
+            Object.keys(context.groups).forEach((moduleId) => {
+                const summary = callTrendHelper(api, "summarizeModuleTrend", [context.groups[moduleId]]);
+                if (summary) {
+                    addTrendSignal(context.moduleSignals, moduleId, summary);
+                    collectTrendSignals(context.moduleSignals, summary);
+                }
+            });
+        }
+
+        return context;
+    }
+
+    function getTrendSampleCount(signal, moduleSessions) {
+        const count = toNumber(readObjectValue(signal, [
+            "sampleCount",
+            "sampleSize",
+            "sessionCount",
+            "count",
+            "n",
+            "observations"
+        ]));
+        if (count !== null) {
+            return count;
+        }
+        return moduleSessions ? moduleSessions.length : 0;
+    }
+
+    function isTrendHighVolatility(signal, text) {
+        const explicit = readObjectValue(signal, ["highVolatility", "isVolatile", "volatile"]);
+        if (explicit === true) {
+            return true;
+        }
+        const volatility = readObjectValue(signal, [
+            "volatility",
+            "adaptationVolatility",
+            "variability",
+            "coefficientOfVariation"
+        ]);
+        return isHighVolatilityValue(volatility) || includesAny(text, [
+            "high volatility",
+            "volatile",
+            "unstable",
+            "波动",
+            "不稳"
+        ]);
+    }
+
+    function trendStatusFromSignal(signal, moduleSessions) {
+        if (!signal) {
+            return "neutral";
+        }
+
+        const sampleCount = getTrendSampleCount(signal, moduleSessions);
+        const statusText = compactText([
+            readObjectValue(signal, ["status", "trendStatus", "planStatus", "category", "phase", "state"]),
+            readObjectValue(signal, ["direction", "trend", "trendDirection", "trajectory", "performanceTrend"]),
+            readObjectValue(signal, ["recommendationType", "adviceType", "nextAction"]),
+            readObjectValue(signal, ["label", "summary", "reason", "rationale", "advice", "recommendation"])
+        ]);
+        const delta = normalizedDelta(readObjectValue(signal, [
+            "delta",
+            "recentDelta",
+            "change",
+            "scoreDelta",
+            "qualityDelta",
+            "slope",
+            "trendSlope",
+            "scoreSlope",
+            "qualitySlope"
+        ]));
+        const volatility = readObjectValue(signal, [
+            "volatility",
+            "adaptationVolatility",
+            "variability",
+            "coefficientOfVariation"
+        ]);
+
+        if (
+            (sampleCount > 0 && sampleCount < TREND_MIN_SAMPLE_SIZE) ||
+            includesAny(statusText, ["insufficient", "not enough", "sample", "样本", "补样本"])
+        ) {
+            return "sample-insufficient";
+        }
+
+        if (
+            includesAny(statusText, ["declin", "down", "worse", "regress", "drop", "下降", "下滑", "退步", "走弱"]) ||
+            (delta !== null && delta <= -0.03)
+        ) {
+            return "declining";
+        }
+
+        if (isTrendHighVolatility(signal, statusText)) {
+            return "high-volatility";
+        }
+
+        if (
+            (includesAny(statusText, ["stable rising", "stable up", "improving", "rising", "upward", "稳定上升", "稳定提升", "上升", "提升"]) ||
+                (delta !== null && delta >= 0.03)) &&
+            (isLowVolatilityValue(volatility) || includesAny(statusText, ["stable", "steady", "低波动", "稳定"]))
+        ) {
+            return "stable-rising";
+        }
+
+        return "neutral";
+    }
+
+    function moduleTrendSummary(moduleId, trendContext) {
+        if (!trendContext || !trendContext.available) {
+            return null;
+        }
+        const id = normalizeModuleId(moduleId);
+        const signal = trendContext.moduleSignals[id];
+        const moduleSessions = trendContext.groups[id] || [];
+        if (!signal) {
+            return null;
+        }
+        const status = trendStatusFromSignal(signal, moduleSessions);
+        const sampleCount = getTrendSampleCount(signal, moduleSessions);
+        return {
+            status,
+            sampleCount,
+            signal
+        };
+    }
+
+    function trendBoostForItem(item, trendContext) {
+        const summary = moduleTrendSummary(item.id, trendContext);
+        if (!summary || !TREND_ADVICE[summary.status]) {
+            return 0;
+        }
+        return TREND_ADVICE[summary.status].boost;
+    }
+
+    function trendAdviceForItem(item, trendContext) {
+        const summary = moduleTrendSummary(item.id, trendContext);
+        if (!summary || !TREND_ADVICE[summary.status]) {
+            return null;
+        }
+
+        const advice = TREND_ADVICE[summary.status];
+        const helperReason = readObjectValue(summary.signal, [
+            "reason",
+            "rationale",
+            "summary",
+            "description",
+            "advice",
+            "recommendation"
+        ]);
+        const evidence = [];
+        if (summary.sampleCount > 0) {
+            evidence.push(`${summary.sampleCount} 次记录`);
+        }
+        if (typeof helperReason === "string" && helperReason.trim()) {
+            evidence.push(shortText(helperReason, 36));
+        }
+
+        return {
+            params: advice.params,
+            reason: `${advice.label}：${advice.reason}${evidence.length ? `（${evidence.join("；")}）` : ""}`
+        };
     }
 
     function shortText(value, maxLength) {
@@ -415,7 +816,7 @@
         return todayCount >= 2 ? 3 : 4;
     }
 
-    function scoreCandidate(item, itemStats, domainStats, position) {
+    function scoreCandidate(item, itemStats, domainStats, position, trendContext) {
         const itemStat = itemStats[item.id] || { count: 0, lastIndex: 999 };
         const domainStat = domainStats[item.domain] || { count: 0, lastIndex: 999 };
         const latestSession = itemStat.latestSession || null;
@@ -426,17 +827,18 @@
         score -= domainStat.count * 2;
         score += position;
         score += consolidationBoost(item, latestSession);
+        score += trendBoostForItem(item, trendContext);
         if (itemStat.lastIndex <= 2) score -= 80;
         if (domainStat.lastIndex <= 1) score -= 25;
         return score;
     }
 
-    function pickBestForDomain(domain, selectedIds, itemStats, domainStats, position) {
+    function pickBestForDomain(domain, selectedIds, itemStats, domainStats, position, trendContext) {
         return CANDIDATES
             .filter((item) => item.domain === domain && !selectedIds.has(item.id))
             .map((item) => ({
                 item,
-                score: scoreCandidate(item, itemStats, domainStats, position)
+                score: scoreCandidate(item, itemStats, domainStats, position, trendContext)
             }))
             .sort((a, b) => b.score - a.score || a.item.title.localeCompare(b.item.title, "zh-CN"))[0]?.item || null;
     }
@@ -445,7 +847,7 @@
         return DEFAULT_PLAN_IDS.map((id) => CANDIDATES.find((item) => item.id === id)).filter(Boolean);
     }
 
-    function createAdaptivePlan(sessions) {
+    function createAdaptivePlan(sessions, trendContext) {
         if (sessions.length === 0) {
             return createDefaultPlan();
         }
@@ -457,7 +859,7 @@
         const targetSize = getPlanSize(sessions);
 
         rotateDomains(new Date()).some((domain, index) => {
-            const item = pickBestForDomain(domain, selectedIds, itemStats, domainStats, index);
+            const item = pickBestForDomain(domain, selectedIds, itemStats, domainStats, index, trendContext);
             if (item) {
                 selected.push(item);
                 selectedIds.add(item.id);
@@ -536,13 +938,25 @@
         return `最近训练（${dateText}）：${summaryText}`;
     }
 
-    function buildPlanDetails(item, latestSession) {
+    function appendTrendAdvice(details, item, trendContext) {
+        const trendAdvice = trendAdviceForItem(item, trendContext);
+        if (!trendAdvice) {
+            return details;
+        }
+        return {
+            params: `${details.params}；${trendAdvice.params}`,
+            reason: `${details.reason}；跨次趋势：${trendAdvice.reason}`,
+            hint: details.hint
+        };
+    }
+
+    function buildPlanDetails(item, latestSession, trendContext) {
         if (!latestSession) {
-            return {
+            return appendTrendAdvice({
                 params: item.params,
                 reason: item.reason,
                 hint: latestSessionHint(item, null)
-            };
+            }, item, trendContext);
         }
 
         const prescriptionFields = [];
@@ -590,14 +1004,14 @@
             dynamicReasonParts.push(`状态：${stabilityText}`);
         }
 
-        return {
+        return appendTrendAdvice({
             params: dynamicParams,
             reason: dynamicReasonParts.join("；"),
             hint: latestSessionHint(item, latestSession)
-        };
+        }, item, trendContext);
     }
 
-    function renderPlan(plan, sessions) {
+    function renderPlan(plan, sessions, trendContext) {
         const planList = document.getElementById("plan-list");
         const planCount = document.getElementById("plan-count");
         const planMinutes = document.getElementById("plan-minutes");
@@ -624,7 +1038,7 @@
         plan.forEach((item, index) => {
             const link = withSeed(item, index);
             const latestSession = itemStats[item.id] ? itemStats[item.id].latestSession : null;
-            const dynamicDetails = buildPlanDetails(item, latestSession);
+            const dynamicDetails = buildPlanDetails(item, latestSession, trendContext);
             const article = document.createElement("article");
             article.className = "plan-item";
 
@@ -680,10 +1094,30 @@
         planList.appendChild(fragment);
     }
 
+    function waitForTrainingTrends() {
+        if (getTrainingTrendsApi()) {
+            return Promise.resolve(true);
+        }
+        const ready = global.trainingTrendsReady;
+        if (!ready || typeof ready.then !== "function") {
+            return Promise.resolve(false);
+        }
+        const timeout = new Promise((resolve) => {
+            global.setTimeout(() => resolve(false), TREND_HELPER_WAIT_MS);
+        });
+        return Promise.race([
+            ready.catch(() => false),
+            timeout
+        ]);
+    }
+
     function init() {
-        const sessions = getSessions();
-        const plan = createAdaptivePlan(sessions);
-        renderPlan(plan, sessions);
+        waitForTrainingTrends().then(() => {
+            const sessions = getSessions();
+            const trendContext = buildTrendContext(sessions);
+            const plan = createAdaptivePlan(sessions, trendContext);
+            renderPlan(plan, sessions, trendContext);
+        });
     }
 
     global.addEventListener("DOMContentLoaded", init);

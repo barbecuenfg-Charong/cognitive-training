@@ -412,6 +412,13 @@ const RECENT_BASELINE_LIMIT = 12;
 const RECENT_HINT_LIMIT = 5;
 const WEAKNESS_LIMIT = 3;
 const NEXT_ROUND_LIMIT = 3;
+const TREND_ACTION_LIMIT = 4;
+const TREND_ACTION_PATTERNS = [
+    { label: "补样本", pattern: /补样本|样本|sample|collect|insufficient|sparse|more.data/i },
+    { label: "降负荷", pattern: /降负荷|降难|降低|减量|reduce|downshift|decrease|lower|load.down/i },
+    { label: "升阶", pattern: /升阶|升级|加难|提高|advance|upgrade|increase|raise|level.up/i },
+    { label: "巩固", pattern: /巩固|维持|保持|稳定|consolidate|maintain|hold|stable/i }
+];
 const DEFAULT_DOMAIN = {
     id: "general",
     label: "综合练习"
@@ -895,6 +902,220 @@ function safeAllSessions(dateKey) {
     }
 }
 
+function getTrainingTrends() {
+    const api = window.TrainingTrends;
+    return api && typeof api === "object" ? api : null;
+}
+
+function callTrainingTrendHelper(methodName, args) {
+    const api = getTrainingTrends();
+    if (!api || typeof api[methodName] !== "function") {
+        return null;
+    }
+
+    try {
+        return api[methodName](...(Array.isArray(args) ? args : []));
+    } catch (error) {
+        console.warn(`TrainingTrends.${methodName} failed:`, error);
+        return null;
+    }
+}
+
+function sanitizeTrainingCopy(value, maxLength = 120) {
+    const text = String(value || "").replace(/\s+/g, " ").trim();
+    if (!text) {
+        return "";
+    }
+
+    return shortText(
+        text
+            .replace(/诊断/g, "训练反馈")
+            .replace(/治疗|疗法|干预/g, "训练安排")
+            .replace(/疗效/g, "训练反馈")
+            .replace(/症状/g, "表现信号")
+            .replace(/病情/g, "训练状态"),
+        maxLength
+    );
+}
+
+function textFromTrendValue(value) {
+    if (value === null || value === undefined) {
+        return "";
+    }
+    if (["string", "number", "boolean"].includes(typeof value)) {
+        return sanitizeTrainingCopy(value);
+    }
+    if (Array.isArray(value)) {
+        return value.map(textFromTrendValue).filter(Boolean).join("；");
+    }
+    if (typeof value !== "object") {
+        return "";
+    }
+
+    const preferredKeys = [
+        "text",
+        "message",
+        "summaryText",
+        "summary",
+        "trendText",
+        "recentTrendText",
+        "description",
+        "reason",
+        "recommendation",
+        "nextRecommendation",
+        "actionText",
+        "detail",
+        "details",
+        "label"
+    ];
+    for (const key of preferredKeys) {
+        if (Object.prototype.hasOwnProperty.call(value, key)) {
+            const text = textFromTrendValue(value[key]);
+            if (text) {
+                return text;
+            }
+        }
+    }
+
+    return "";
+}
+
+function flattenTrendItems(value) {
+    if (value === null || value === undefined) {
+        return [];
+    }
+    if (Array.isArray(value)) {
+        return value;
+    }
+    if (typeof value !== "object") {
+        return textFromTrendValue(value) ? [value] : [];
+    }
+
+    const knownKeys = [
+        "items",
+        "signals",
+        "actions",
+        "recommendedActions",
+        "recommendations",
+        "nextActions",
+        "planSignals",
+        "weakModules",
+        "moduleTrends",
+        "weakModuleTrends"
+    ];
+    const items = [];
+    knownKeys.forEach((key) => {
+        if (Array.isArray(value[key])) {
+            items.push(...value[key]);
+        }
+    });
+    return items.length > 0 ? items : [value];
+}
+
+function collectTrendItemsFromKeys(source, keys) {
+    if (!source || typeof source !== "object") {
+        return [];
+    }
+
+    const items = [];
+    keys.forEach((key) => {
+        if (Object.prototype.hasOwnProperty.call(source, key)) {
+            items.push(...flattenTrendItems(source[key]));
+        }
+    });
+    return items;
+}
+
+function actionLabelFromText(text) {
+    const value = String(text || "");
+    const matched = TREND_ACTION_PATTERNS.find((item) => item.pattern.test(value));
+    return matched ? matched.label : "";
+}
+
+function actionLabelFromSignal(signal) {
+    if (signal && typeof signal === "object" && !Array.isArray(signal)) {
+        const fields = [
+            signal.action,
+            signal.actionType,
+            signal.type,
+            signal.kind,
+            signal.category,
+            signal.decision,
+            signal.nextAction,
+            signal.recommendation,
+            signal.label,
+            signal.reason,
+            signal.text
+        ];
+        const label = actionLabelFromText(fields.filter(Boolean).join(" "));
+        if (label) {
+            return label;
+        }
+    }
+
+    return actionLabelFromText(textFromTrendValue(signal));
+}
+
+function defaultTrendActionText(label) {
+    const text = {
+        "升阶": "最近记录较稳定时，只小幅增加一个参数，下一场继续观察错误率和反应波动。",
+        "巩固": "沿用上次参数完成一轮，目标是让正确率、错误类型和节奏更稳定。",
+        "降负荷": "先降低速度、跨度、干扰或题量，等错误信号下降后再恢复原负荷。",
+        "补样本": "最近记录不足以判断趋势，先补 1-2 场短回合再比较。"
+    };
+    return text[label] || "按最近训练反馈调整下一轮。";
+}
+
+function formatTrendActionSignal(signal) {
+    const label = actionLabelFromSignal(signal);
+    if (!label) {
+        return "";
+    }
+
+    let detail = textFromTrendValue(signal);
+    if (!detail || detail.length <= 12 && actionLabelFromText(detail) === label) {
+        detail = defaultTrendActionText(label);
+    }
+    return `${label}：${detail}`;
+}
+
+function helperTrendText(analysis) {
+    if (!analysis) {
+        return "";
+    }
+    if (typeof analysis !== "object" || Array.isArray(analysis)) {
+        return textFromTrendValue(analysis);
+    }
+
+    const keys = ["recentTrendText", "trendText", "summaryText", "summary", "overallTrend", "message", "text"];
+    for (const key of keys) {
+        if (Object.prototype.hasOwnProperty.call(analysis, key)) {
+            const text = textFromTrendValue(analysis[key]);
+            if (text) {
+                return text;
+            }
+        }
+    }
+
+    return "";
+}
+
+function buildTrainingTrendContext(recentSessions, dateKey) {
+    const options = {
+        dateKey,
+        recentLimit: RECENT_ANALYSIS_LIMIT,
+        baselineLimit: RECENT_BASELINE_LIMIT
+    };
+    return {
+        analysis: callTrainingTrendHelper("analyzeTrainingTrends", [recentSessions, options]),
+        planSignals: callTrainingTrendHelper("buildPlanSignals", [recentSessions])
+    };
+}
+
+function helperModuleTrendText(group) {
+    return textFromTrendValue(callTrainingTrendHelper("summarizeModuleTrend", [group]));
+}
+
 function parseMetricNumber(key, value) {
     if (value === null || value === undefined) {
         return null;
@@ -1215,6 +1436,87 @@ function buildTrendText(dateKey, selectedSessions, baselineSessions) {
     return `${currentLabel} ${current.count} 场，覆盖 ${current.domainCount} 个能力域，平均表现 ${scoreText(current.averageScore)}，总时长 ${formatDuration(current.totalDurationMs)}；最近 ${baseline.count} 场基线平均表现 ${scoreText(baseline.averageScore)}、平均单场 ${formatDuration(baseline.averageDurationMs)}。${trendSentence}`;
 }
 
+function buildRecentTrendText(dateKey, selectedSessions, baselineSessions, recentSessions, trendContext) {
+    const helperText = helperTrendText(trendContext && trendContext.analysis);
+    if (!helperText) {
+        return buildTrendText(dateKey, selectedSessions, baselineSessions);
+    }
+
+    const sampleText = recentSessions.length < 3
+        ? "样本仍少，先补足短回合后再判断趋势。"
+        : `基于最近 ${recentSessions.length} 场训练记录。`;
+    return `${helperText}${helperText.endsWith("。") ? "" : "。"}${sampleText}`;
+}
+
+function helperActionItems(trendContext) {
+    const analysis = trendContext && trendContext.analysis;
+    const planSignals = trendContext && trendContext.planSignals;
+    const signalItems = [
+        ...collectTrendItemsFromKeys(analysis, [
+            "recommendedActions",
+            "actions",
+            "recommendations",
+            "nextActions",
+            "planSignals"
+        ]),
+        ...flattenTrendItems(planSignals)
+    ];
+    const seen = new Set();
+    const items = [];
+
+    signalItems.forEach((signal) => {
+        const text = formatTrendActionSignal(signal);
+        if (!text || seen.has(text)) {
+            return;
+        }
+        seen.add(text);
+        items.push(text);
+    });
+
+    return items.slice(0, TREND_ACTION_LIMIT);
+}
+
+function buildFallbackTrendActions(recentSessions, weakGroups, domainGroups) {
+    const items = [];
+    const summary = summarizeSessionSet(recentSessions);
+
+    if (recentSessions.length < 3) {
+        items.push(`补样本：最近只有 ${recentSessions.length} 场记录，先补 1-2 场短回合再比较趋势。`);
+        return items;
+    }
+
+    const primaryWeak = weakGroups[0];
+    if (primaryWeak && (primaryWeak.issueRate >= 0.5 || (primaryWeak.averageScore !== null && primaryWeak.averageScore < 70))) {
+        items.push(`降负荷：${primaryWeak.label} 的错误信号较多，下一轮先降低速度、跨度、干扰或题量。`);
+    } else if (primaryWeak) {
+        items.push(`巩固：${primaryWeak.label} 仍有可复核信号，下一轮沿用上次参数完成一轮。`);
+    } else if (summary.averageScore !== null && summary.averageScore >= 85 && recentSessions.length >= 6) {
+        items.push("升阶：最近记录较稳定，可只上调一个参数，并继续观察错误率和反应波动。");
+    } else {
+        items.push("巩固：最近没有明确降负荷信号，下一轮先维持参数并观察稳定性。");
+    }
+
+    const sparseGroups = aggregateModules(recentSessions).filter((group) => group.count < 2);
+    if (sparseGroups.length > 0 && items.length < TREND_ACTION_LIMIT) {
+        const names = sparseGroups.slice(0, 2).map((group) => group.label).join("、");
+        items.push(`补样本：${names} 的近期记录偏少，先补一个短回合再判断模块趋势。`);
+    }
+    if (domainGroups.length > 0 && !items.some((item) => item.startsWith("巩固")) && items.length < TREND_ACTION_LIMIT) {
+        items.push(`巩固：保持 ${domainGroups[0].label} 主项，目标是让表现反馈更稳定。`);
+    }
+
+    return items;
+}
+
+function buildTrendActions(recentSessions, weakGroups, domainGroups, trendContext) {
+    const helperItems = helperActionItems(trendContext);
+    if (helperItems.length > 0) {
+        return helperItems;
+    }
+
+    return buildFallbackTrendActions(recentSessions, weakGroups, domainGroups);
+}
+
 function aggregateDomains(sessions) {
     const groups = new Map();
     sessions.forEach((session) => {
@@ -1412,9 +1714,19 @@ function renderDomainSummary(domains) {
 function renderWeaknesses(weakGroups) {
     const items = weakGroups.map((group) => {
         const scorePart = group.averageScore === null ? "暂无可比评分" : `平均表现 ${scoreText(group.averageScore)}`;
-        return `${group.label}｜${group.domain.label}｜最近 ${group.count} 次：${scorePart}；${moduleWeakReason(group)}。`;
+        const helperTrend = helperModuleTrendText(group);
+        const trendPart = helperTrend ? `趋势：${helperTrend}。` : "";
+        return `${group.label}｜${group.domain.label}｜最近 ${group.count} 次：${scorePart}；${moduleWeakReason(group)}。${trendPart}`;
     });
-    setListItems("weakness-list", items, "最近记录没有明显弱项；下一轮可按当前节奏巩固，并继续观察错误类型。");
+    setListItems("weakness-list", items, "最近记录没有明显弱项趋势；下一轮可按当前节奏巩固，并继续观察错误类型。");
+}
+
+function renderTrendActions(recentSessions, weakGroups, domains, trendContext) {
+    setListItems(
+        "trend-action-list",
+        buildTrendActions(recentSessions, weakGroups, domains, trendContext),
+        "暂无推荐行动；先完成一轮训练后再生成升阶、巩固、降负荷或补样本建议。"
+    );
 }
 
 function renderAttentionSystemFeedback(recentSessions) {
@@ -1510,6 +1822,7 @@ function renderTrainingFeedback(dateKey) {
         .slice(0, RECENT_BASELINE_LIMIT);
     const domains = aggregateDomains(recentSessions);
     const weakGroups = weakModuleGroups(recentSessions);
+    const trendContext = buildTrainingTrendContext(recentSessions, dateKey);
     const windowText = allSessions.length > 0
         ? `基于最近 ${recentSessions.length} / ${allSessions.length} 场 · 当前日期 ${dateKey}`
         : `当前日期 ${dateKey}`;
@@ -1519,15 +1832,23 @@ function renderTrainingFeedback(dateKey) {
         document.getElementById("feedback-trend").textContent = "训练记录读取失败，暂时无法生成趋势反馈。";
         renderDomainSummary([]);
         setListItems("weakness-list", [], "暂无可用记录。");
+        setListItems("trend-action-list", [], "记录恢复后再生成推荐行动。");
         setListItems("next-round-list", [], "记录恢复后再生成下一轮建议。");
         setListItems("recent-hints-list", [], "暂无可用记录。");
         renderAttentionSystemFeedback([]);
         return;
     }
 
-    document.getElementById("feedback-trend").textContent = buildTrendText(dateKey, selectedSessions, baselineSessions);
+    document.getElementById("feedback-trend").textContent = buildRecentTrendText(
+        dateKey,
+        selectedSessions,
+        baselineSessions,
+        recentSessions,
+        trendContext
+    );
     renderDomainSummary(domains);
     renderWeaknesses(weakGroups);
+    renderTrendActions(recentSessions, weakGroups, domains, trendContext);
     setListItems("next-round-list", buildNextRoundSuggestions(weakGroups, domains, recentSessions), "暂无下一轮建议。");
     renderAttentionSystemFeedback(recentSessions);
     setListItems(
@@ -1632,6 +1953,10 @@ function init() {
         }
         window.TrainingResults.clearAllSessions();
         render(picker.value || todayDateKey());
+    });
+
+    window.addEventListener("training-trends-ready", () => {
+        renderTrainingFeedback(picker.value || todayDateKey());
     });
 }
 

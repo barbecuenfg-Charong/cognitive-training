@@ -137,6 +137,18 @@
     </div>
 
     <script src="src/shared/training-results.js"></script>
+    <script>
+        (function loadTrainingTrends(global, document) {
+            const script = document.createElement("script");
+            script.src = "src/shared/training-trends.js";
+            script.async = false;
+            global.trainingTrendsReady = new Promise((resolve) => {
+                script.onload = () => resolve(true);
+                script.onerror = () => resolve(false);
+            });
+            document.head.appendChild(script);
+        })(window, document);
+    </script>
     <script src="daily-plan.js"></script>
 </body>
 </html>

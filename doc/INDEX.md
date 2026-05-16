@@ -90,6 +90,8 @@
    训练本体第三轮收口：创造力、社会认知与校准门禁强化，多 agent 单文件收口、训练深度 smoke 扩展与全量验证结论。
 39. [39-training-loop-round4-report-plan-runtime-20260513.md](39-training-loop-round4-report-plan-runtime-20260513.md)
    训练本体第四轮计划：报告页与 Daily Plan 的运行时消费、反馈信号门禁和阈值校准口径。
+40. [40-training-loop-round5-trend-cycle-20260515.md](40-training-loop-round5-trend-cycle-20260515.md)
+   训练本体第五轮：跨 session 趋势闭环、真实训练 smoke 收口与训练本体继续深化。
 
 ## 源汇总镜像
 
@@ -111,6 +113,6 @@
 
 ## 文档版本
 
-- 版本：`v1.12`
-- 生成日期：`2026-05-13`
+- 版本：`v1.13`
+- 生成日期：`2026-05-15`
 - 适用范围：`glm5` 与 `gpt` 文档体系融合

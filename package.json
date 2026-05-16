@@ -11,8 +11,10 @@
     "check:sensitive-paths": "node scripts/check-sensitive-paths.js",
     "check:fontawesome-loading": "node scripts/audit-fontawesome-loading.js",
     "check:feedback-signals": "node scripts/smoke-feedback-signals.js",
+    "check:training-trends": "node scripts/smoke-training-trends.js",
+    "check:real-training-loop": "node scripts/smoke-real-training-loop.js",
     "check:picky-player": "node scripts/picky-player-audit.js --check",
-    "check": "npm run check:syntax && npm run check:sensitive-paths && npm run check:fontawesome-loading && npm run smoke:pages && npm run smoke:flows && npm run check:feedback-signals && npm run check:picky-player",
+    "check": "npm run check:syntax && npm run check:sensitive-paths && npm run check:fontawesome-loading && npm run smoke:pages && npm run smoke:flows && npm run check:feedback-signals && npm run check:training-trends && npm run check:real-training-loop && npm run check:picky-player",
     "audit:picky-player": "node scripts/picky-player-audit.js --write",
     "smoke:pages": "node scripts/smoke-pages.js",
     "smoke:flows": "node scripts/flow-smoke.js"

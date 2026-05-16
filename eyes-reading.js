@@ -1,10 +1,39 @@
-const CONTENT_VERSION = "eyes-reading-v3-trial-metadata";
+const CONTENT_VERSION = "eyes-reading-v4-category-feedback";
+const SESSION_TRIAL_COUNT = 12;
 
 const MATERIAL_BOUNDARY = {
     materialSource: "自绘/合成的眼周线索练习材料",
     sourceCredit: "仓库内自建内容，不使用 RMET 标准材料原图或原题复刻",
     licenseBoundary: "仅限本仓库训练与演示用途，不作为标准题库复制、商用分发或二次发布素材",
-    nonDiagnosticBoundary: "这是社会认知练习，不用于诊断、筛查或临床结论"
+    nonDiagnosticBoundary: "这是社会认知练习，只提供练习反馈，不作健康或能力结论"
+};
+
+const CATEGORY_HINTS = {
+    "威胁警觉": "先看眉毛是否内压、视线是否紧绷。",
+    "认知不确定": "先看眉形是否不对称，以及视线是否像在确认信息。",
+    "低落耗竭": "先看上眼睑和眉形是否呈现下沉或无力。",
+    "低唤醒/疏离": "先看视线是否缺少投入感。",
+    "低唤醒/稳定": "先确认眉眼是否保持放松和对称。",
+    "突发反应": "先看眉眼是否整体打开。",
+    "目标导向控制": "先看视线是否稳定集中。",
+    "高唤醒正向": "先看是否更像兴奋、得意或惊喜，而不是警觉。"
+};
+
+const OPTION_CATEGORY_OVERRIDES = {
+    放松: "低唤醒/稳定",
+    轻松: "低唤醒/稳定",
+    愉快: "高唤醒正向",
+    活跃: "高唤醒正向",
+    满足: "低唤醒/稳定",
+    沮丧: "低落耗竭",
+    害怕: "威胁警觉",
+    恐惧: "威胁警觉",
+    惊慌: "威胁警觉",
+    厌烦: "低唤醒/疏离",
+    厌恶: "威胁警觉",
+    羞愧: "低落耗竭",
+    尴尬: "认知不确定",
+    挑衅: "威胁警觉"
 };
 
 const ALL_ITEMS = [
@@ -187,6 +216,74 @@ const ALL_ITEMS = [
         rightBrow: 0,
         pupilX: 30,
         options: ["平静", "愤怒", "惊慌", "厌恶"]
+    },
+    {
+        id: "eyes-13",
+        emotion: "得意",
+        emotionCategory: "高唤醒正向",
+        confusableEmotion: "自豪",
+        distractorCategory: "目标导向控制",
+        confusionSet: ["得意", "自豪", "挑衅"],
+        vocabularyLevel: "advanced",
+        wordComprehensionRisk: "medium",
+        lexicalDemand: 3,
+        visualCue: "眉眼上扬但视线更轻快",
+        confuserHint: "自豪更稳定，得意更有即时反应感",
+        leftBrow: -10,
+        rightBrow: 6,
+        pupilX: 35,
+        options: ["得意", "自豪", "羞愧", "挑衅"]
+    },
+    {
+        id: "eyes-14",
+        emotion: "羞愧",
+        emotionCategory: "低落耗竭",
+        confusableEmotion: "尴尬",
+        distractorCategory: "认知不确定",
+        confusionSet: ["羞愧", "尴尬", "悲伤"],
+        vocabularyLevel: "advanced",
+        wordComprehensionRisk: "high",
+        lexicalDemand: 3,
+        visualCue: "视线避开且眉眼下沉",
+        confuserHint: "尴尬更像社交卡顿，羞愧更偏向自我否定后的低落",
+        leftBrow: 18,
+        rightBrow: -18,
+        pupilX: 22,
+        options: ["尴尬", "羞愧", "平静", "悲伤"]
+    },
+    {
+        id: "eyes-15",
+        emotion: "惊喜",
+        emotionCategory: "突发反应",
+        confusableEmotion: "惊讶",
+        distractorCategory: "突发反应",
+        confusionSet: ["惊喜", "惊讶", "兴奋"],
+        vocabularyLevel: "intermediate",
+        wordComprehensionRisk: "medium",
+        lexicalDemand: 2,
+        visualCue: "眉眼打开，同时比普通惊讶更接近正向",
+        confuserHint: "惊讶只说明突然，惊喜还带有正向感受",
+        leftBrow: -2,
+        rightBrow: 2,
+        pupilX: 34,
+        options: ["惊讶", "惊喜", "困惑", "兴奋"]
+    },
+    {
+        id: "eyes-16",
+        emotion: "厌烦",
+        emotionCategory: "低唤醒/疏离",
+        confusableEmotion: "冷漠",
+        distractorCategory: "低唤醒/疏离",
+        confusionSet: ["厌烦", "冷漠", "疲惫"],
+        vocabularyLevel: "advanced",
+        wordComprehensionRisk: "medium",
+        lexicalDemand: 3,
+        visualCue: "视线投入低，同时带有轻微排斥",
+        confuserHint: "冷漠更像不投入，厌烦更像不想继续",
+        leftBrow: 4,
+        rightBrow: -4,
+        pupilX: 25,
+        options: ["厌烦", "冷漠", "疲惫", "专注"]
     }
 ];
 
@@ -207,23 +304,48 @@ const resultModal = document.getElementById("result-modal");
 const optionsEl = document.getElementById("options");
 const feedback = document.getElementById("feedback");
 
+function categoryForOption(option, item) {
+    if (option === item.emotion) {
+        return item.emotionCategory;
+    }
+
+    const knownItem = ALL_ITEMS.find((candidate) => candidate.emotion === option);
+    if (knownItem) {
+        return knownItem.emotionCategory;
+    }
+
+    return OPTION_CATEGORY_OVERRIDES[option] || item.distractorCategory || "未分类";
+}
+
+function normalizeItem(item) {
+    return {
+        ...item,
+        category: item.emotionCategory,
+        confuser: item.confusableEmotion,
+        visualCue: item.visualCue || CATEGORY_HINTS[item.emotionCategory] || "先比较眉形、视线方向和紧张程度。",
+        confuserHint: item.confuserHint || `容易和“${item.confusableEmotion}”混淆，先比较两者的强度和方向。`,
+        lexicalHint: item.lexicalHint || `确认“${item.emotion}”和“${item.confusableEmotion}”的词义差别后再作答。`
+    };
+}
+
 function buildSessionItems() {
     const seeded = window.SeededRandom;
     sessionSeed = seeded ? seeded.createSessionSeed("eyes-reading") : `eyes-reading-${Date.now()}`;
     const rng = seeded ? seeded.createRngFromSeed(sessionSeed) : Math.random;
     const ordered = seeded
-        ? seeded.pickShuffled(ALL_ITEMS, rng, ALL_ITEMS.length)
-        : ALL_ITEMS.slice();
+        ? seeded.pickShuffled(ALL_ITEMS, rng, SESSION_TRIAL_COUNT)
+        : ALL_ITEMS.slice(0, SESSION_TRIAL_COUNT);
 
     itemOrder = ordered.map((item) => item.id);
     optionOrder = [];
     sessionItems = ordered.map((item) => {
-        const options = item.options.slice();
+        const normalized = normalizeItem(item);
+        const options = normalized.options.slice();
         if (seeded) {
             seeded.shuffleInPlace(options, rng);
         }
-        optionOrder.push({ id: item.id, itemId: item.id, options: options.slice() });
-        return { ...item, options };
+        optionOrder.push({ id: normalized.id, itemId: normalized.id, options: options.slice() });
+        return { ...normalized, options };
     });
 }
 
@@ -264,20 +386,34 @@ function renderQuestion() {
 }
 
 function recordTrial(item, selectedOption, rtMs, correct) {
+    const responseCategory = categoryForOption(selectedOption, item);
     const trial = {
+        index: sessionTrials.length,
         itemId: item.id,
         emotion: item.emotion,
+        category: item.emotionCategory,
         emotionCategory: item.emotionCategory,
+        confuser: item.confusableEmotion,
         confusableEmotion: item.confusableEmotion,
         distractorCategory: item.distractorCategory,
         confusionSet: item.confusionSet.slice(),
         vocabularyLevel: item.vocabularyLevel,
         wordComprehensionRisk: item.wordComprehensionRisk,
         lexicalDemand: item.lexicalDemand,
+        visualCue: item.visualCue,
+        confuserHint: item.confuserHint,
+        lexicalHint: item.lexicalHint,
         optionOrder: item.options.slice(),
+        response: selectedOption,
+        responseCategory,
         selectedOption,
+        correctAnswer: item.emotion,
+        confuserSelected: selectedOption === item.confusableEmotion,
+        categoryMatch: responseCategory === item.emotionCategory,
         correct,
-        rtMs
+        rt: rtMs,
+        rtMs,
+        contentVersion: CONTENT_VERSION
     };
     sessionTrials.push(trial);
     return trial;
@@ -296,9 +432,9 @@ function choose(option) {
 
     if (correct) {
         correctCount += 1;
-        feedback.textContent = `正确（${rt}ms）`;
+        feedback.textContent = `正确（${rt}ms）：${item.visualCue}`;
     } else {
-        feedback.textContent = `不正确，答案是“${item.emotion}”（${rt}ms）`;
+        feedback.textContent = `不正确，答案是“${item.emotion}”（${rt}ms）。${item.confuserHint}`;
     }
 
     index += 1;
@@ -343,15 +479,37 @@ function buildEmotionCategoryBreakdown(trials) {
 function buildConfusionBreakdown(trials) {
     const wrongTrials = trials.filter((trial) => !trial.correct);
     return {
+        byResponse: tallyCounts(wrongTrials.map((trial) => trial.response || "未作答")),
         bySelectedOption: tallyCounts(wrongTrials.map((trial) => trial.selectedOption || "未作答")),
         byConfusableEmotion: tallyCounts(
             wrongTrials
-                .filter((trial) => trial.selectedOption === trial.confusableEmotion)
+                .filter((trial) => trial.confuserSelected)
                 .map((trial) => trial.confusableEmotion || "未归类")
         ),
+        byTargetCategory: tallyCounts(wrongTrials.map((trial) => trial.category || trial.emotionCategory || "未分类")),
+        byResponseCategory: tallyCounts(wrongTrials.map((trial) => trial.responseCategory || "未分类")),
+        byConfusionPair: tallyCounts(wrongTrials.map((trial) => `${trial.emotion}->${trial.response || "未作答"}`)),
         byDistractorCategory: tallyCounts(wrongTrials.map((trial) => trial.distractorCategory || "未分类")),
+        confuserHitCount: wrongTrials.filter((trial) => trial.confuserSelected).length,
+        categoryNearMissCount: wrongTrials.filter((trial) => trial.categoryMatch).length,
         wrongTrialCount: wrongTrials.length
     };
+}
+
+function buildCategoryErrorFeedback(summary) {
+    return Object.entries(summary.emotionCategoryBreakdown || {})
+        .filter(([, bucket]) => bucket.attempts > bucket.correct)
+        .map(([category, bucket]) => {
+            const errors = bucket.attempts - bucket.correct;
+            return {
+                category,
+                attempts: bucket.attempts,
+                errors,
+                accuracy: bucket.accuracy,
+                feedback: `${category}类错 ${errors} 题，${CATEGORY_HINTS[category] || "下一轮先比较目标词和易混词。"}`
+            };
+        })
+        .sort((a, b) => b.errors - a.errors || a.accuracy - b.accuracy);
 }
 
 function buildNextPracticeRecommendation(summary) {
@@ -419,12 +577,17 @@ function buildSessionSummary(trials) {
         emotionCategoryBreakdown,
         confusionBreakdown,
         vocabularyRiskCount,
+        itemPoolSize: ALL_ITEMS.length,
+        sessionTrialCount: SESSION_TRIAL_COUNT,
+        seed: sessionSeed,
+        contentVersion: CONTENT_VERSION,
         materialSource: MATERIAL_BOUNDARY.materialSource,
         sourceCredit: MATERIAL_BOUNDARY.sourceCredit,
         licenseBoundary: MATERIAL_BOUNDARY.licenseBoundary,
         nonDiagnosticBoundary: MATERIAL_BOUNDARY.nonDiagnosticBoundary
     };
 
+    summary.categoryErrorFeedback = buildCategoryErrorFeedback(summary);
     summary.nextPracticeRecommendation = buildNextPracticeRecommendation(summary);
     return summary;
 }
@@ -458,8 +621,11 @@ function finish() {
                 avgReactionMs: avgRt,
                 emotionCategoryBreakdown: summary.emotionCategoryBreakdown,
                 confusionBreakdown: summary.confusionBreakdown,
+                categoryErrorFeedback: summary.categoryErrorFeedback,
                 vocabularyRiskCount: summary.vocabularyRiskCount,
                 nextPracticeRecommendation: summary.nextPracticeRecommendation,
+                itemPoolSize: summary.itemPoolSize,
+                sessionTrialCount: summary.sessionTrialCount,
                 materialSource: MATERIAL_BOUNDARY.materialSource,
                 sourceCredit: MATERIAL_BOUNDARY.sourceCredit,
                 licenseBoundary: MATERIAL_BOUNDARY.licenseBoundary,
